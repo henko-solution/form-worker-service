@@ -322,5 +322,11 @@ class DispatchProcessor:
 
     async def close(self) -> None:
         """Close service clients."""
-        await self.employee_service.close()
-        await self.form_service_client.close()
+        try:
+            await self.employee_service.close()
+        except Exception as e:
+            logger.warning(f"Error closing employee service: {str(e)}")
+        try:
+            await self.form_service_client.close()
+        except Exception as e:
+            logger.warning(f"Error closing form service client: {str(e)}")

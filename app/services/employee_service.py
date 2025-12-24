@@ -45,20 +45,41 @@ class EmployeeService:
     @property
     async def client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
+        # In Lambda, always create a fresh client to avoid "Device or resource busy" errors
+        # when containers are reused between invocations
         if self._client is None:
             base_url_str: str = str(self.base_url) if self.base_url else ""
             self._client = httpx.AsyncClient(
                 base_url=base_url_str,
                 timeout=self.timeout,
                 follow_redirects=True,
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            )
+        # Check if client is closed and recreate if needed
+        elif hasattr(self._client, "is_closed") and self._client.is_closed:
+            try:
+                await self._client.aclose()
+            except Exception:
+                pass  # Ignore errors when closing already closed client
+            self._client = None
+            base_url_str: str = str(self.base_url) if self.base_url else ""
+            self._client = httpx.AsyncClient(
+                base_url=base_url_str,
+                timeout=self.timeout,
+                follow_redirects=True,
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
             )
         return self._client
 
     async def close(self) -> None:
         """Close HTTP client."""
         if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+            try:
+                await self._client.aclose()
+            except Exception as e:
+                logger.warning(f"Error closing HTTP client: {str(e)}")
+            finally:
+                self._client = None
 
     async def get_users_by_role_and_area(
         self,
