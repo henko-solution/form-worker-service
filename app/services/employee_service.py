@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urljoin
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -110,9 +111,12 @@ class EmployeeService:
                 "accept": "application/json",
             }
 
-            # Build full URL
+            # Build full URL using urljoin to ensure proper URL construction
             # Endpoint: GET /employees/
-            url = f"{self.base_url}/employees/"
+            url = urljoin(self.base_url, "/employees/")
+
+            logger.debug(f"Employee Service URL: {url}")
+            logger.debug(f"Base URL: {self.base_url}")
 
             # Make API call
             # Expected endpoint:
