@@ -40,13 +40,8 @@ class EmployeeService:
         """
         settings = get_settings()
         base_url_raw = base_url or settings.employee_service_url
-        # Remove existing protocol if present, then add https://
-        if base_url_raw.startswith(("http://", "https://")):
-            # Remove protocol
-            base_url_clean = base_url_raw.split("://", 1)[1]
-        else:
-            base_url_clean = base_url_raw
-        # Add https:// prefix
+        # Remove any existing protocol and add https://
+        base_url_clean = base_url_raw.replace("https://", "").replace("http://", "")
         self.base_url = f"https://{base_url_clean}"
         self.timeout = timeout
         self.auth_service = auth_service or CognitoAuthService()
