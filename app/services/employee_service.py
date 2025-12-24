@@ -40,9 +40,12 @@ class EmployeeService:
         """
         settings = get_settings()
         base_url_raw = base_url or settings.employee_service_url
-        # Remove any existing protocol and add https://
-        base_url_clean = base_url_raw.replace("https://", "").replace("http://", "")
-        self.base_url = f"https://{base_url_clean}"
+        # Add https:// if not already present
+        if not base_url_raw.startswith("https://"):
+            base_url_clean = base_url_raw.removeprefix("http://")
+            self.base_url = f"https://{base_url_clean}"
+        else:
+            self.base_url = base_url_raw
         self.timeout = timeout
         self.auth_service = auth_service or CognitoAuthService()
         # Create a session with retry strategy
