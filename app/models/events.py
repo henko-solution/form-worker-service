@@ -44,13 +44,13 @@ class DispatchEvent(BaseModel):
         None,
         description="ID of the form associated with the dispatch",
     )
-    role_ids: list[UUID] = Field(
-        default_factory=list,
-        description="List of role IDs to filter users",
+    role_ids: list[UUID] | None = Field(
+        default=None,
+        description="List of role IDs to filter users. If None or empty, all users are included.",
     )
-    area_ids: list[UUID] = Field(
-        default_factory=list,
-        description="List of area IDs to filter users",
+    area_ids: list[UUID] | None = Field(
+        default=None,
+        description="List of area IDs to filter users. If None or empty, all users are included.",
     )
     expires_at: datetime | None = Field(
         None,
@@ -62,28 +62,28 @@ class DispatchEvent(BaseModel):
     )
     created_by: str = Field(..., description="User ID who created the dispatch")
 
-    @field_validator("role_ids", "area_ids")
+    @field_validator("role_ids", "area_ids", mode="before")
     @classmethod
-    def validate_not_both_empty(
-        cls,
-        v: list[UUID],
-        info: Any,
-    ) -> list[UUID]:
+    def normalize_lists(cls, v: Any) -> list[UUID] | None:
         """
-        Validate that at least one filter (roles or areas) is provided.
+        Normalize None or empty lists to None.
+        Empty lists or None values mean "all users" (no filtering).
 
         Args:
-            v: Value to validate
-            info: Validation info
+            v: Value to normalize (can be None, empty list, or list of UUIDs/strings)
 
         Returns:
-            Validated value
-
-        Raises:
-            ValueError: If both role_ids and area_ids are empty
+            None if value is None or empty list, otherwise the list (will be converted to UUIDs)
         """
-        # This validator runs for each field separately
-        # We need to check both fields in model_validator
+        if v is None:
+            return None
+        if isinstance(v, list):
+            # Convert empty list to None (means "all users")
+            if len(v) == 0:
+                return None
+            # Non-empty list will be validated and converted to UUIDs by Pydantic
+            return v
+        # If it's not None and not a list, let Pydantic handle the error
         return v
 
     @field_validator("tenant_id")
@@ -107,16 +107,16 @@ class DispatchEvent(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         """
-        Validate that at least one filter is provided.
+        Post-initialization processing.
+
+        When both role_ids and area_ids are None or empty,
+        it means all users should receive the dispatch.
 
         Args:
             __context: Context for post-init validation
-
-        Raises:
-            ValueError: If both role_ids and area_ids are empty
         """
-        if not self.role_ids and not self.area_ids:
-            raise ValueError("At least one of role_ids or area_ids must be provided")
+        # No validation needed - empty filters mean "all users"
+        pass
 
     class Config:
         """Pydantic configuration."""
@@ -134,7 +134,31 @@ class DispatchEvent(BaseModel):
                 "expires_at": "2026-01-01T23:59:59Z",
                 "created_by": "990e8400-e29b-41d4-a716-446655440004",
                 "created_at": "2025-12-22T16:30:00Z",
-            }
+            },
+            "examples": [
+                {
+                    "description": "With filters (specific roles/areas)",
+                    "value": {
+                        "dispatch_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "tenant_id": "henko-main",
+                        "role_ids": ["770e8400-e29b-41d4-a716-446655440002"],
+                        "area_ids": ["880e8400-e29b-41d4-a716-446655440003"],
+                        "created_at": "2025-12-22T16:30:00Z",
+                        "created_by": "990e8400-e29b-41d4-a716-446655440004",
+                    },
+                },
+                {
+                    "description": "All users (no filters)",
+                    "value": {
+                        "dispatch_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "tenant_id": "henko-main",
+                        "role_ids": None,
+                        "area_ids": None,
+                        "created_at": "2025-12-22T16:30:00Z",
+                        "created_by": "990e8400-e29b-41d4-a716-446655440004",
+                    },
+                },
+            ],
         }
 
 

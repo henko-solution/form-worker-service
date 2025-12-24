@@ -106,12 +106,19 @@ class DispatchProcessor:
         role_ids_str = [str(rid) for rid in role_ids] if role_ids else None
         area_ids_str = [str(aid) for aid in area_ids] if area_ids else None
 
-        logger.info(
-            f"Fetching users from Employee Service: "
-            f"tenant_id={tenant_id}, "
-            f"role_ids={len(role_ids_str) if role_ids_str else 0}, "
-            f"area_ids={len(area_ids_str) if area_ids_str else 0}"
-        )
+        # Log filter status
+        if not role_ids_str and not area_ids_str:
+            logger.info(
+                f"Fetching all users from Employee Service "
+                f"(no filters applied): tenant_id={tenant_id}"
+            )
+        else:
+            logger.info(
+                f"Fetching users from Employee Service: "
+                f"tenant_id={tenant_id}, "
+                f"role_ids={len(role_ids_str) if role_ids_str else 0}, "
+                f"area_ids={len(area_ids_str) if area_ids_str else 0}"
+            )
 
         user_ids = await self.employee_service.get_users_by_role_and_area(
             tenant_id=tenant_id,
@@ -209,10 +216,11 @@ class DispatchProcessor:
 
         try:
             # Step 1: Get user IDs from Employee Service
+            # If role_ids and area_ids are None/empty, all users will be returned
             user_ids = await self.get_user_ids(
                 tenant_id=event.tenant_id,
-                role_ids=event.role_ids if event.role_ids else None,
-                area_ids=event.area_ids if event.area_ids else None,
+                role_ids=event.role_ids,
+                area_ids=event.area_ids,
             )
 
             if not user_ids:
