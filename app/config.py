@@ -39,13 +39,6 @@ class Settings(BaseSettings):
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
 
-    def __init__(self, **kwargs: Any) -> None:
-        """Initialize settings with environment variable support."""
-        super().__init__(**kwargs)
-        # Override region if AWS_REGION is set (Lambda environment)
-        if os.environ.get("AWS_REGION"):
-            self.aws_region = os.environ["AWS_REGION"]
-
     # SQS Configuration
     sqs_queue_url: str = ""
     sqs_max_number_of_messages: int = 10
@@ -61,6 +54,16 @@ class Settings(BaseSettings):
     cognito_client_secret: str | None = None
     cognito_system_username: str = ""
     cognito_system_password: str = ""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize settings with environment variable support."""
+        super().__init__(**kwargs)
+        # Override region if AWS_REGION is set (Lambda environment)
+        if os.environ.get("AWS_REGION"):
+            self.aws_region = os.environ["AWS_REGION"]
+        # Normalize empty string to None for client_secret
+        if self.cognito_client_secret == "":
+            self.cognito_client_secret = None
 
     # Internal API Authentication (deprecated - use Cognito instead)
     internal_api_key: str = ""

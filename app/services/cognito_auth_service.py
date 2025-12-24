@@ -62,7 +62,9 @@ class CognitoAuthService:
         self.client = boto3.client("cognito-idp", region_name=self.region)
 
         logger.info(
-            f"Initialized CognitoAuthService for user pool: {self.user_pool_id}"
+            f"Initialized CognitoAuthService for user pool: {self.user_pool_id}, "
+            f"client_id: {self.client_id}, "
+            f"has_client_secret: {bool(self.client_secret)}"
         )
 
     def _calculate_secret_hash(self, username: str) -> str:
@@ -99,7 +101,10 @@ class CognitoAuthService:
             WorkerError: If authentication fails
         """
         try:
-            logger.debug("Authenticating with Cognito")
+            logger.debug(
+                f"Authenticating with Cognito: username={self.username}, "
+                f"has_client_secret={bool(self.client_secret)}"
+            )
 
             # Prepare authentication parameters
             auth_params: dict[str, Any] = {
@@ -107,8 +112,16 @@ class CognitoAuthService:
                 "PASSWORD": self.password,
             }
 
+            # If client_secret is provided, calculate and add SECRET_HASH
             if self.client_secret:
-                auth_params["SECRET_HASH"] = self._calculate_secret_hash(self.username)
+                secret_hash = self._calculate_secret_hash(self.username)
+                auth_params["SECRET_HASH"] = secret_hash
+                logger.debug("Added SECRET_HASH to authentication parameters")
+            else:
+                logger.warning(
+                    "No client_secret provided. If Cognito client has a secret configured, "
+                    "authentication will fail. Check COGNITO_CLIENT_SECRET environment variable."
+                )
 
             # Authenticate with Cognito
             response = self.client.initiate_auth(
