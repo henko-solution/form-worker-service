@@ -20,8 +20,8 @@ form-worker-service/
 │   ├── workers/
 │   │   └── dispatch_processor.py  # Main dispatch processing logic
 │   ├── services/
-│   │   ├── employee_service.py    # Employee Service API client (httpx)
-│   │   ├── form_service_client.py # Form Service API client (httpx)
+│   │   ├── employee_service.py    # Employee Service API client (requests)
+│   │   ├── form_service_client.py # Form Service API client (requests)
 │   │   └── cognito_auth_service.py # Cognito authentication service
 │   ├── models/
 │   │   └── events.py              # Pydantic models for SQS events
@@ -41,7 +41,7 @@ form-worker-service/
 ## 🚀 Technologies
 
 - **Python 3.13** - Programming language
-- **httpx** - Asynchronous HTTP client for API calls
+- **requests** - HTTP client for API calls (synchronous, stable in Lambda)
 - **boto3** - AWS SDK for SQS
 - **Pydantic V2** - Data validation for events
 - **AWS Lambda** - Serverless execution environment
@@ -741,5 +741,5 @@ Before deploying to production:
 - [Architecture Design](./ARCHITECTURE_DESIGN.md)
 - [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/)
 - [AWS SQS Documentation](https://docs.aws.amazon.com/sqs/)
-- [httpx Documentation](https://www.python-httpx.org/)
+- [requests Documentation](https://requests.readthedocs.io/)
 - [Pydantic Documentation](https://docs.pydantic.dev/)
