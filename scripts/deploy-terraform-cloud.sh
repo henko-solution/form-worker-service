@@ -103,6 +103,15 @@ export TF_VAR_aws_region=$(gh variable list --repo henko-solution/form-worker-se
 export TF_VAR_form_service_url=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="FORM_SERVICE_URL") | .value' 2>/dev/null || echo "")
 export TF_VAR_employee_service_url=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="EMPLOYEE_SERVICE_URL") | .value' 2>/dev/null || echo "")
 
+# Cognito Configuration
+export TF_VAR_cognito_user_pool_id=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_USER_POOL_ID") | .value' 2>/dev/null || echo "")
+export TF_VAR_cognito_client_id=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_CLIENT_ID") | .value' 2>/dev/null || echo "")
+export TF_VAR_cognito_client_secret=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_CLIENT_SECRET") | .value' 2>/dev/null || echo "")
+export TF_VAR_cognito_client_secret_secret_name=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_CLIENT_SECRET_SECRET_NAME") | .value' 2>/dev/null || echo "")
+export TF_VAR_cognito_system_username=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_SYSTEM_USERNAME") | .value' 2>/dev/null || echo "")
+export TF_VAR_cognito_system_password=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_SYSTEM_PASSWORD") | .value' 2>/dev/null || echo "")
+export TF_VAR_cognito_system_password_secret_name=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_SYSTEM_PASSWORD_SECRET_NAME") | .value' 2>/dev/null || echo "")
+
 # Variables con valores por defecto
 export TF_VAR_assignment_batch_size=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="ASSIGNMENT_BATCH_SIZE") | .value' 2>/dev/null || echo "100")
 export TF_VAR_max_retries=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="MAX_RETRIES") | .value' 2>/dev/null || echo "3")
@@ -123,11 +132,36 @@ if [[ -z "$TF_VAR_employee_service_url" ]]; then
     exit 1
 fi
 
+if [[ -z "$TF_VAR_cognito_user_pool_id" ]]; then
+    log_error "COGNITO_USER_POOL_ID es requerido. Configúralo en GitHub Variables"
+    exit 1
+fi
+
+if [[ -z "$TF_VAR_cognito_client_id" ]]; then
+    log_error "COGNITO_CLIENT_ID es requerido. Configúralo en GitHub Variables"
+    exit 1
+fi
+
+if [[ -z "$TF_VAR_cognito_system_username" ]]; then
+    log_error "COGNITO_SYSTEM_USERNAME es requerido. Configúralo en GitHub Variables"
+    exit 1
+fi
+
+if [[ -z "$TF_VAR_cognito_system_password" && -z "$TF_VAR_cognito_system_password_secret_name" ]]; then
+    log_error "COGNITO_SYSTEM_PASSWORD es requerido. Configúralo en GitHub Variables"
+    exit 1
+fi
+
 # Mostrar variables obtenidas para debugging
 log_info "📋 Variables obtenidas desde GitHub:"
 log_info "  AWS_REGION: $TF_VAR_aws_region"
 log_info "  FORM_SERVICE_URL: $TF_VAR_form_service_url"
 log_info "  EMPLOYEE_SERVICE_URL: $TF_VAR_employee_service_url"
+log_info "  COGNITO_USER_POOL_ID: $TF_VAR_cognito_user_pool_id"
+log_info "  COGNITO_CLIENT_ID: $TF_VAR_cognito_client_id"
+log_info "  COGNITO_CLIENT_SECRET: [SET]"
+log_info "  COGNITO_SYSTEM_USERNAME: $TF_VAR_cognito_system_username"
+log_info "  COGNITO_SYSTEM_PASSWORD: [SET]"
 log_info "  ASSIGNMENT_BATCH_SIZE: $TF_VAR_assignment_batch_size"
 log_info "  MAX_RETRIES: $TF_VAR_max_retries"
 log_info "  RETRY_DELAY_SECONDS: $TF_VAR_retry_delay_seconds"
@@ -150,11 +184,16 @@ log_success "Autenticado en GitHub como: $GITHUB_USER"
 
 # Verificar autenticación de Terraform Cloud
 log_info "🔐 Verificando autenticación de Terraform Cloud..."
-if [[ -z "$TF_API_TOKEN" ]]; then
-    log_error "TF_API_TOKEN no está configurado. Configúralo con:"
-    log_error "export TF_API_TOKEN=tu_token_de_terraform_cloud"
+# TF_TOKEN_app_terraform_io es la variable estándar para Terraform Cloud
+if [[ -z "$TF_API_TOKEN" && -z "$TF_TOKEN_app_terraform_io" ]]; then
+    log_error "TF_API_TOKEN o TF_TOKEN_app_terraform_io no está configurado. Configúralo con:"
+    log_error "export TF_TOKEN_app_terraform_io=tu_token_de_terraform_cloud"
     log_error "Obtén tu token en: https://app.terraform.io/app/settings/tokens"
     exit 1
+fi
+# Usar TF_TOKEN_app_terraform_io si TF_API_TOKEN no está configurado
+if [[ -z "$TF_API_TOKEN" && -n "$TF_TOKEN_app_terraform_io" ]]; then
+    export TF_API_TOKEN="$TF_TOKEN_app_terraform_io"
 fi
 
 # Configurar workspace para Terraform Cloud
@@ -293,6 +332,13 @@ PLAN_ARGS=(
     "-var=aws_region=$TF_VAR_aws_region"
     "-var=form_service_url=$TF_VAR_form_service_url"
     "-var=employee_service_url=$TF_VAR_employee_service_url"
+    "-var=cognito_user_pool_id=$TF_VAR_cognito_user_pool_id"
+    "-var=cognito_client_id=$TF_VAR_cognito_client_id"
+    "-var=cognito_client_secret=$TF_VAR_cognito_client_secret"
+    "-var=cognito_client_secret_secret_name=${TF_VAR_cognito_client_secret_secret_name:-}"
+    "-var=cognito_system_username=$TF_VAR_cognito_system_username"
+    "-var=cognito_system_password=$TF_VAR_cognito_system_password"
+    "-var=cognito_system_password_secret_name=${TF_VAR_cognito_system_password_secret_name:-}"
     "-var=assignment_batch_size=$TF_VAR_assignment_batch_size"
     "-var=max_retries=$TF_VAR_max_retries"
     "-var=retry_delay_seconds=$TF_VAR_retry_delay_seconds"

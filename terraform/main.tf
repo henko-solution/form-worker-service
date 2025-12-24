@@ -44,6 +44,17 @@ data "aws_secretsmanager_secret_version" "cognito_system_password" {
   secret_id = data.aws_secretsmanager_secret.cognito_system_password[0].id
 }
 
+# Secrets Manager data source for Cognito client secret (optional - can use direct variable)
+data "aws_secretsmanager_secret" "cognito_client_secret" {
+  count = var.cognito_client_secret_secret_name != "" ? 1 : 0
+  name  = var.cognito_client_secret_secret_name
+}
+
+data "aws_secretsmanager_secret_version" "cognito_client_secret" {
+  count     = var.cognito_client_secret_secret_name != "" ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.cognito_client_secret[0].id
+}
+
 # Local values
 locals {
   # Extract repository name from git remote
@@ -124,7 +135,7 @@ module "lambda_worker" {
     EMPLOYEE_SERVICE_URL    = var.employee_service_url
     COGNITO_USER_POOL_ID    = var.cognito_user_pool_id
     COGNITO_CLIENT_ID       = var.cognito_client_id
-    COGNITO_CLIENT_SECRET   = var.cognito_client_secret != "" ? var.cognito_client_secret : ""
+    COGNITO_CLIENT_SECRET = var.cognito_client_secret_secret_name != "" ? data.aws_secretsmanager_secret_version.cognito_client_secret[0].secret_string : (var.cognito_client_secret != "" ? var.cognito_client_secret : "")
     COGNITO_SYSTEM_USERNAME = var.cognito_system_username
     COGNITO_SYSTEM_PASSWORD = var.cognito_system_password_secret_name != "" ? data.aws_secretsmanager_secret_version.cognito_system_password[0].secret_string : var.cognito_system_password
     ASSIGNMENT_BATCH_SIZE   = tostring(var.assignment_batch_size)
@@ -139,7 +150,7 @@ module "lambda_worker" {
   cloudwatch_kms_key_id = var.cloudwatch_kms_key_id
 
   # Lambda Layer configuration
-  create_layer  = true
+  create_layer   = true
   layer_filename = "lambda-layer.zip"
 
   common_tags = local.common_tags

@@ -88,10 +88,16 @@ variable "cognito_client_id" {
 }
 
 variable "cognito_client_secret" {
-  description = "AWS Cognito Client Secret (optional)"
+  description = "AWS Cognito Client Secret (optional, if not using Secrets Manager)"
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "cognito_client_secret_secret_name" {
+  description = "Name of the secret in AWS Secrets Manager containing the Cognito client secret"
+  type        = string
+  default     = ""
 }
 
 variable "cognito_system_username" {
