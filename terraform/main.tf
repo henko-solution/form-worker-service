@@ -33,13 +33,15 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
-# Secrets Manager data source for API key
-data "aws_secretsmanager_secret" "internal_api_key" {
-  name = var.internal_api_key_secret_name
+# Secrets Manager data source for Cognito password (optional - can use direct variable)
+data "aws_secretsmanager_secret" "cognito_system_password" {
+  count = var.cognito_system_password_secret_name != "" ? 1 : 0
+  name  = var.cognito_system_password_secret_name
 }
 
-data "aws_secretsmanager_secret_version" "internal_api_key" {
-  secret_id = data.aws_secretsmanager_secret.internal_api_key.id
+data "aws_secretsmanager_secret_version" "cognito_system_password" {
+  count     = var.cognito_system_password_secret_name != "" ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.cognito_system_password[0].id
 }
 
 # Local values
@@ -67,9 +69,10 @@ locals {
 
 # SQS Queue for dispatch events
 # Note: This queue is created here, but form-service publishes to it
+# Access control is managed via IAM roles (no queue policy)
 resource "aws_sqs_queue" "dispatch_events" {
-  name                      = "${local.project_name}-dispatch-events"
-  message_retention_seconds = 345600 # 4 days
+  name                       = "${local.project_name}-dispatch-events"
+  message_retention_seconds  = 345600 # 4 days
   visibility_timeout_seconds = 900    # 15 minutes (Lambda timeout)
 
   # Dead Letter Queue configuration
@@ -97,10 +100,10 @@ resource "aws_sqs_queue" "dispatch_events_dlq" {
 module "lambda_worker" {
   source = "./modules/lambda_worker"
 
-  project_name         = local.project_name
-  environment          = var.environment
-  aws_region           = var.aws_region
-  aws_account_id       = data.aws_caller_identity.current.account_id
+  project_name   = local.project_name
+  environment    = var.environment
+  aws_region     = var.aws_region
+  aws_account_id = data.aws_caller_identity.current.account_id
 
   lambda_filename    = var.lambda_filename
   lambda_handler     = var.lambda_handler
@@ -112,27 +115,27 @@ module "lambda_worker" {
   sqs_queue_arn = aws_sqs_queue.dispatch_events.arn
   sqs_queue_url = aws_sqs_queue.dispatch_events.url
 
-  # Batch configuration
-  sqs_batch_size              = var.sqs_batch_size
-  sqs_maximum_batching_window = var.sqs_maximum_batching_window
-
   # Environment variables
+  # Note: AWS_REGION is automatically set by Lambda and cannot be overridden
   environment_variables = {
-    ENVIRONMENT            = var.environment
-    AWS_REGION             = var.aws_region
-    SQS_QUEUE_URL          = aws_sqs_queue.dispatch_events.url
-    FORM_SERVICE_URL       = var.form_service_url
-    EMPLOYEE_SERVICE_URL   = var.employee_service_url
-    INTERNAL_API_KEY       = data.aws_secretsmanager_secret_version.internal_api_key.secret_string
-    ASSIGNMENT_BATCH_SIZE  = var.assignment_batch_size
-    MAX_RETRIES            = var.max_retries
-    RETRY_DELAY_SECONDS    = var.retry_delay_seconds
-    LOG_LEVEL              = var.log_level
-    DEBUG                  = var.environment == "dev" || var.environment == "qa" ? "true" : "false"
+    ENVIRONMENT             = var.environment
+    SQS_QUEUE_URL           = aws_sqs_queue.dispatch_events.url
+    FORM_SERVICE_URL        = var.form_service_url
+    EMPLOYEE_SERVICE_URL    = var.employee_service_url
+    COGNITO_USER_POOL_ID    = var.cognito_user_pool_id
+    COGNITO_CLIENT_ID       = var.cognito_client_id
+    COGNITO_CLIENT_SECRET   = var.cognito_client_secret != "" ? var.cognito_client_secret : ""
+    COGNITO_SYSTEM_USERNAME = var.cognito_system_username
+    COGNITO_SYSTEM_PASSWORD = var.cognito_system_password_secret_name != "" ? data.aws_secretsmanager_secret_version.cognito_system_password[0].secret_string : var.cognito_system_password
+    ASSIGNMENT_BATCH_SIZE   = tostring(var.assignment_batch_size)
+    MAX_RETRIES             = tostring(var.max_retries)
+    RETRY_DELAY_SECONDS     = tostring(var.retry_delay_seconds)
+    LOG_LEVEL               = var.log_level
+    DEBUG                   = var.environment == "dev" || var.environment == "qa" ? "true" : "false"
   }
 
   # CloudWatch configuration
-  log_retention_days  = var.log_retention_days
+  log_retention_days    = var.log_retention_days
   cloudwatch_kms_key_id = var.cloudwatch_kms_key_id
 
   common_tags = local.common_tags
@@ -144,7 +147,7 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   function_name    = module.lambda_worker.lambda_function_arn
 
   batch_size                         = var.sqs_batch_size
-  maximum_batching_window_in_seconds  = var.sqs_maximum_batching_window
+  maximum_batching_window_in_seconds = var.sqs_maximum_batching_window
   enabled                            = true
 
   # Filter criteria (optional - can filter messages)

@@ -23,7 +23,7 @@ variable "lambda_filename" {
 variable "lambda_handler" {
   description = "Lambda function handler"
   type        = string
-  default     = "app.lambda_handler.lambda_handler"
+  default     = "lambda_handler.lambda_handler"
 }
 
 variable "lambda_runtime" {
@@ -76,11 +76,41 @@ variable "employee_service_url" {
   type        = string
 }
 
-# Secrets Manager Configuration
-variable "internal_api_key_secret_name" {
-  description = "Name of the secret in AWS Secrets Manager containing the internal API key"
+# Cognito Configuration
+variable "cognito_user_pool_id" {
+  description = "AWS Cognito User Pool ID"
   type        = string
-  default     = "form-service/internal-api-key"
+}
+
+variable "cognito_client_id" {
+  description = "AWS Cognito Client ID"
+  type        = string
+}
+
+variable "cognito_client_secret" {
+  description = "AWS Cognito Client Secret (optional)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "cognito_system_username" {
+  description = "System user username for Cognito authentication"
+  type        = string
+  sensitive   = true
+}
+
+variable "cognito_system_password" {
+  description = "System user password for Cognito authentication (if not using Secrets Manager)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "cognito_system_password_secret_name" {
+  description = "Name of the secret in AWS Secrets Manager containing the Cognito system user password"
+  type        = string
+  default     = ""
 }
 
 # Worker Configuration

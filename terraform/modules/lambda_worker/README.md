@@ -19,7 +19,7 @@ This module creates a Lambda function for processing SQS events in the Form Work
 | aws_region | AWS region | string | - | yes |
 | aws_account_id | AWS account ID | string | - | yes |
 | lambda_filename | Path to Lambda ZIP file | string | `"../lambda-code.zip"` | no |
-| lambda_handler | Lambda handler | string | `"app.lambda_handler.lambda_handler"` | no |
+| lambda_handler | Lambda handler | string | `"lambda_handler.lambda_handler"` | no |
 | lambda_runtime | Lambda runtime | string | `"python3.13"` | no |
 | lambda_timeout | Lambda timeout in seconds | number | `900` | no |
 | lambda_memory_size | Lambda memory in MB | number | `512` | no |
@@ -49,7 +49,7 @@ module "lambda_worker" {
   aws_account_id = "123456789012"
 
   lambda_filename = "lambda-code.zip"
-  lambda_handler   = "app.lambda_handler.lambda_handler"
+  lambda_handler   = "lambda_handler.lambda_handler"
   lambda_timeout   = 900
   lambda_memory_size = 512
 

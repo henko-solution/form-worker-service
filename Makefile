@@ -8,7 +8,7 @@
 # Uso: make [target]
 # =============================================================================
 
-.PHONY: help setup install test test-unit test-integration quality lint format clean pre-commit-install pre-commit-run pre-commit-update
+.PHONY: help setup install quality lint format clean pre-commit-install pre-commit-run pre-commit-update
 
 # Variables
 PYTHON = python3
@@ -51,7 +51,7 @@ setup: ## Configura el entorno de desarrollo
 	$(PYTHON) -m venv .venv || true
 	$(call print_status,Instalando dependencias...)
 	.venv/bin/pip install --upgrade pip
-	.venv/bin/pip install -e ".[local,test,all]"
+	.venv/bin/pip install -e ".[local,all]"
 	$(call print_status,Instalando pre-commit hooks...)
 	@.venv/bin/pre-commit install || $(call print_warning,Pre-commit no disponible, instalando...)
 	@if command -v pre-commit > /dev/null 2>&1; then \
@@ -66,49 +66,29 @@ setup: ## Configura el entorno de desarrollo
 
 install: ## Instala las dependencias
 	$(call print_status,Instalando dependencias...)
-	$(PIP) install -e ".[local,test,all]"
+	$(PIP) install -e ".[local,all]"
 	$(call print_success,Dependencias instaladas)
-
-test: ## Ejecuta todos los tests
-	$(call print_status,Ejecutando tests...)
-	pytest tests/ -v
-	$(call print_success,Tests completados)
-
-test-unit: ## Ejecuta solo los tests unitarios
-	$(call print_status,Ejecutando tests unitarios...)
-	pytest tests/unit/ -v
-	$(call print_success,Tests unitarios completados)
-
-test-integration: ## Ejecuta solo los tests de integración
-	$(call print_status,Ejecutando tests de integración...)
-	pytest tests/integration/ -v
-	$(call print_success,Tests de integración completados)
-
-test-coverage: ## Ejecuta tests con cobertura
-	$(call print_status,Ejecutando tests con cobertura...)
-	pytest tests/ --cov=app --cov-report=html --cov-report=term
-	$(call print_success,Cobertura generada en htmlcov/index.html)
 
 quality: lint format pre-commit-run ## Ejecuta todas las verificaciones de calidad
 	$(call print_success,Verificaciones de calidad completadas)
 
 lint: ## Ejecuta linters (flake8, mypy, bandit)
 	$(call print_status,Ejecutando linters...)
-	flake8 app tests
-	mypy app
-	bandit -r app
+	flake8 app lambda_handler.py --max-line-length=88 --extend-ignore=E203,W503
+	mypy app lambda_handler.py
+	bandit -r app lambda_handler.py
 	$(call print_success,Linters completados)
 
 format: ## Formatea el código (black, isort)
 	$(call print_status,Formateando código...)
-	black app tests
-	isort app tests
+	black app lambda_handler.py
+	isort app lambda_handler.py
 	$(call print_success,Código formateado)
 
 format-check: ## Verifica el formato sin modificar
 	$(call print_status,Verificando formato...)
-	black --check app tests
-	isort --check app tests
+	black --check app lambda_handler.py
+	isort --check app lambda_handler.py
 	$(call print_success,Formato verificado)
 
 clean: ## Limpia archivos temporales

@@ -14,17 +14,20 @@ This service implements an **Event-Driven Worker Architecture** with the followi
 ### 📁 Project Structure
 
 ```
-app/
-├── lambda_handler.py          # Lambda handler entry point
-├── workers/
-│   └── dispatch_processor.py  # Main dispatch processing logic
-├── services/
-│   ├── employee_service.py    # Employee Service API client (httpx)
-│   └── form_service_client.py # Form Service API client (httpx)
-├── models/
-│   └── events.py              # Pydantic models for SQS events
-├── exceptions.py              # Custom exceptions
-└── config.py                  # Application configuration
+form-worker-service/
+├── lambda_handler.py          # Lambda handler entry point (root level)
+├── app/
+│   ├── workers/
+│   │   └── dispatch_processor.py  # Main dispatch processing logic
+│   ├── services/
+│   │   ├── employee_service.py    # Employee Service API client (httpx)
+│   │   ├── form_service_client.py # Form Service API client (httpx)
+│   │   └── cognito_auth_service.py # Cognito authentication service
+│   ├── models/
+│   │   └── events.py              # Pydantic models for SQS events
+│   ├── exceptions.py              # Custom exceptions
+│   └── config.py                  # Application configuration
+└── terraform/                    # Infrastructure as Code
 ```
 
 ### 🔄 Data Flow
@@ -40,9 +43,10 @@ app/
 - **Python 3.13** - Programming language
 - **httpx** - Asynchronous HTTP client for API calls
 - **boto3** - AWS SDK for SQS
-- **Pydantic** - Data validation for events
+- **Pydantic V2** - Data validation for events
 - **AWS Lambda** - Serverless execution environment
 - **AWS SQS** - Message queue for events
+- **AWS Cognito** - Authentication service for service-to-service auth
 
 ## 🎯 Features
 
@@ -51,6 +55,7 @@ app/
 - ✅ **Batch Processing**: Creates assignments in configurable batches
 - ✅ **Error Handling**: Comprehensive error handling with retries
 - ✅ **Logging**: Structured logging for observability
+- ✅ **Cognito Authentication**: Secure service-to-service authentication
 - ✅ **No Database**: Stateless worker, communicates via APIs only
 
 ## 🏃‍♂️ Quick Start
@@ -114,61 +119,94 @@ AWS_REGION=us-east-1
 For local testing, you can simulate SQS events:
 
 ```python
-# Example SQS event structure
+import json
+
+# Example SQS event structure with new event format
 event = {
     "Records": [
         {
             "messageId": "test-message-id",
             "body": json.dumps({
+                "event_type": "dispatch.created",
+                "event_version": "1.0",
+                "timestamp": "2025-12-22T16:30:00Z",
                 "dispatch_id": "550e8400-e29b-41d4-a716-446655440000",
                 "tenant_id": "henko-main",
-                "role_ids": ["550e8400-e29b-41d4-a716-446655440001"],
-                "area_ids": [],
-                "expires_at": "2025-12-31T23:59:59Z",
-                "created_at": "2025-12-15T12:00:00Z",
-                "created_by": "user-uuid"
+                "form_id": "660e8400-e29b-41d4-a716-446655440001",
+                "role_ids": ["770e8400-e29b-41d4-a716-446655440002"],
+                "area_ids": ["880e8400-e29b-41d4-a716-446655440003"],
+                "expires_at": "2026-01-01T23:59:59Z",
+                "created_by": "990e8400-e29b-41d4-a716-446655440004",
+                "created_at": "2025-12-22T16:30:00Z"
             })
         }
     ]
 }
 
 # Test handler
-from app.lambda_handler import lambda_handler
+from lambda_handler import lambda_handler
 result = lambda_handler(event, None)
 ```
 
-## 🧪 Testing
-
-### Running Tests
-
-```bash
-# All tests
-pytest
-
-# Unit tests only
-pytest tests/unit
-
-# Integration tests only
-pytest tests/integration
-
-# With coverage
-pytest --cov=app --cov-report=html
-```
-
-### Test Structure
-
-- **Unit Tests** (`tests/unit/`): Test individual components
-- **Integration Tests** (`tests/integration/`): Test full processing flow with mocks
 
 ## 📦 Deployment
 
-### AWS Lambda Deployment
+### Despliegue con Terraform Cloud
 
-The service is deployed as an AWS Lambda function triggered by SQS.
+El servicio se despliega usando Terraform Cloud. El script de despliegue automatiza todo el proceso.
+
+#### Prerrequisitos
+
+1. **Terraform CLI** instalado
+2. **GitHub CLI** (`gh`) instalado y autenticado
+3. **Token de Terraform Cloud** configurado como variable de entorno:
+   ```bash
+   export TF_TOKEN_app_terraform_io="tu_token_de_terraform_cloud"
+   ```
+4. **Variables configuradas en GitHub**:
+   - Variables públicas en GitHub Variables
+   - Secrets sensibles en GitHub Secrets (ej: `COGNITO_SYSTEM_PASSWORD`)
+
+#### Comando de Despliegue
+
+```bash
+# Para QA
+export TF_TOKEN_app_terraform_io="tu_token_de_terraform_cloud"
+./scripts/deploy-terraform-cloud.sh qa
+
+# Para otros ambientes
+./scripts/deploy-terraform-cloud.sh staging
+./scripts/deploy-terraform-cloud.sh prod
+```
+
+**Nota sobre Variables:**
+- Todas las variables (incluyendo `COGNITO_SYSTEM_PASSWORD`) están configuradas en GitHub Variables
+- El script las obtiene automáticamente desde GitHub
+- No necesitas exportar variables manualmente antes de ejecutar el script
+
+#### Qué hace el Script
+
+1. ✅ Verifica dependencias (Terraform, GitHub CLI, Python)
+2. 📥 Obtiene variables desde GitHub Variables/Secrets
+3. 📦 Crea Lambda Layer con dependencias Python
+4. 📦 Crea Lambda Code Package con tu código
+5. 📋 Ejecuta `terraform plan` para validar cambios
+6. ⚠️ Pide confirmación antes de aplicar
+7. 🚀 Ejecuta `terraform apply` para crear/actualizar recursos
+8. 📊 Muestra información del despliegue (ARNs, URLs, etc.)
+
+#### Recursos Desplegados
+
+- **SQS Queue**: Cola principal para eventos de dispatch
+- **SQS DLQ**: Dead Letter Queue para mensajes fallidos
+- **Lambda Function**: Función que procesa los eventos
+- **CloudWatch Log Group**: Logs de la función Lambda
+- **IAM Roles & Policies**: Permisos necesarios
+- **Event Source Mapping**: Conexión SQS → Lambda
 
 **Lambda Configuration:**
 - Runtime: Python 3.13
-- Handler: `app.lambda_handler.lambda_handler`
+- Handler: `lambda_handler.lambda_handler`
 - Timeout: 15 minutes (for large batches)
 - Memory: 512 MB (adjust based on batch size)
 
@@ -192,7 +230,7 @@ Lambda receives SQS event with one or more messages:
   "Records": [
     {
       "messageId": "...",
-      "body": "{\"dispatch_id\":\"...\",\"tenant_id\":\"...\",...}"
+      "body": "{\"event_type\":\"dispatch.created\",\"dispatch_id\":\"...\",...}"
     }
   ]
 }
@@ -200,19 +238,25 @@ Lambda receives SQS event with one or more messages:
 
 ### 2. Parse Message
 
-Each message body is parsed into a `DispatchEvent`:
+Each message body is parsed into a `DispatchEvent`. The message format from form-service:
 
-```python
-DispatchEvent(
-    dispatch_id=UUID("..."),
-    tenant_id="henko-main",
-    role_ids=[UUID("...")],
-    area_ids=[UUID("...")],
-    expires_at=datetime(...),
-    created_at=datetime(...),
-    created_by="user-uuid"
-)
+```json
+{
+  "event_type": "dispatch.created",
+  "event_version": "1.0",
+  "timestamp": "2025-12-22T16:30:00Z",
+  "dispatch_id": "550e8400-e29b-41d4-a716-446655440000",
+  "tenant_id": "henko-main",
+  "form_id": "660e8400-e29b-41d4-a716-446655440001",
+  "role_ids": ["770e8400-e29b-41d4-a716-446655440002"],
+  "area_ids": ["880e8400-e29b-41d4-a716-446655440003"],
+  "expires_at": "2026-01-01T23:59:59Z",
+  "created_by": "990e8400-e29b-41d4-a716-446655440004",
+  "created_at": "2025-12-22T16:30:00Z"
+}
 ```
+
+The model supports both the new event format (with `event_type`, `event_version`, `timestamp`, `form_id`) and legacy format for backward compatibility.
 
 ### 3. Get Users
 
@@ -271,7 +315,11 @@ Returns processing statistics:
 | `SQS_QUEUE_URL` | SQS queue URL | Required |
 | `FORM_SERVICE_URL` | Form Service API URL | `http://localhost:8002` |
 | `EMPLOYEE_SERVICE_URL` | Employee Service API URL | `http://localhost:8001` |
-| `INTERNAL_API_KEY` | API key for Form Service internal endpoint | Required |
+| `COGNITO_USER_POOL_ID` | AWS Cognito User Pool ID | Required |
+| `COGNITO_CLIENT_ID` | AWS Cognito Client ID | Required |
+| `COGNITO_CLIENT_SECRET` | AWS Cognito Client Secret | Optional |
+| `COGNITO_SYSTEM_USERNAME` | System user username for authentication | Required |
+| `COGNITO_SYSTEM_PASSWORD` | System user password | Required |
 | `AWS_REGION` | AWS region | `us-east-1` |
 | `ASSIGNMENT_BATCH_SIZE` | Number of assignments per batch | `100` |
 | `MAX_RETRIES` | Maximum retry attempts | `3` |
@@ -320,10 +368,13 @@ Key metrics to monitor:
 
 ## 🔐 Security
 
-- **API Key Authentication**: Uses `X-API-Key` header for Form Service
+- **Cognito Authentication**: Uses JWT tokens from AWS Cognito for service-to-service authentication
+- **System User**: Dedicated system user with username/password stored in Secrets Manager
+- **Token Management**: Automatic token refresh and caching to minimize authentication calls
 - **Tenant Isolation**: All operations include tenant ID
 - **No Database Access**: Worker has no direct database access
 - **IAM Roles**: Lambda uses IAM role for AWS service access
+- **SQS Access Control**: SQS queue access is controlled via IAM roles (no queue policy). Only resources with explicit IAM permissions can publish messages.
 
 ## 📝 Development Guidelines
 
@@ -369,18 +420,12 @@ pre-commit run --all-files
 make pre-commit-update
 ```
 
-### Testing
-
-- Write unit tests for all components
-- Mock external services in tests
-- Test error scenarios
-- Aim for >90% coverage
 
 ## 🤝 Contributing
 
 1. Create feature branch
 2. Make changes
-3. Run tests and quality checks (`make quality`)
+3. Run quality checks (`make quality`)
 4. Ensure pre-commit hooks pass
 5. Submit pull request
 
@@ -423,13 +468,14 @@ MIT License
 **Symptom**: `form_service_error` in processing results.
 
 **Possible Causes**:
-- Invalid API key
+- Cognito authentication failure
 - Form Service unavailable
 - Invalid dispatch_id
 - Rate limiting
 
 **Solutions**:
-- Verify `INTERNAL_API_KEY` is correct
+- Verify Cognito credentials are correct
+- Check Cognito User Pool configuration
 - Check Form Service health
 - Verify dispatch exists in Form Service
 - Check rate limits
@@ -644,22 +690,30 @@ Key CloudWatch metrics to track:
 
 ## 🔐 Security Best Practices
 
-### API Key Management
+### Cognito Configuration
 
-- Store `INTERNAL_API_KEY` in AWS Secrets Manager
-- Rotate API keys regularly
-- Use different keys per environment
-- Never commit API keys to repository
+- Store `COGNITO_SYSTEM_PASSWORD` in AWS Secrets Manager
+- Use dedicated system user for worker authentication
+- Rotate system user password regularly
+- Use different credentials per environment
+- Never commit credentials to repository
 
 ### IAM Permissions
 
-Lambda function needs:
+**Lambda Worker Function** needs:
 - `sqs:ReceiveMessage` - Read from SQS
 - `sqs:DeleteMessage` - Delete processed messages
 - `sqs:GetQueueAttributes` - Get queue information
 - `logs:CreateLogGroup` - Create CloudWatch log groups
 - `logs:CreateLogStream` - Create log streams
 - `logs:PutLogEvents` - Write logs
+- `secretsmanager:GetSecretValue` - Access Cognito password from Secrets Manager
+
+**Form Service** (publisher) needs:
+- `sqs:SendMessage` - Publish messages to SQS queue
+- `sqs:GetQueueAttributes` - Optional: Validate queue exists
+
+**Note**: SQS queue has no queue policy. Access is controlled exclusively via IAM roles.
 
 ### Network Security
 
@@ -680,7 +734,6 @@ Before deploying to production:
 - [ ] Dead Letter Queue configured
 - [ ] CloudWatch alarms set up
 - [ ] IAM roles and permissions verified
-- [ ] Tests passing
 - [ ] Documentation updated
 
 ## 📚 Additional Resources

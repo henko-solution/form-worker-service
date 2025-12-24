@@ -18,6 +18,7 @@ from ..exceptions import (
     WorkerError,
 )
 from ..models.events import CreateAssignmentRequest, DispatchEvent
+from ..services.cognito_auth_service import CognitoAuthService
 from ..services.employee_service import EmployeeService
 from ..services.form_service_client import FormServiceClient
 
@@ -31,16 +32,25 @@ class DispatchProcessor:
         self,
         employee_service: EmployeeService | None = None,
         form_service_client: FormServiceClient | None = None,
+        auth_service: CognitoAuthService | None = None,
     ) -> None:
         """Initialize dispatch processor.
 
         Args:
             employee_service: Employee Service client instance
             form_service_client: Form Service client instance
+            auth_service: Cognito authentication service instance
+                (shared between clients)
         """
         self.settings = get_settings()
-        self.employee_service = employee_service or EmployeeService()
-        self.form_service_client = form_service_client or FormServiceClient()
+        # Share auth service between clients to avoid multiple authentications
+        self.auth_service = auth_service or CognitoAuthService()
+        self.employee_service = employee_service or EmployeeService(
+            auth_service=self.auth_service
+        )
+        self.form_service_client = form_service_client or FormServiceClient(
+            auth_service=self.auth_service
+        )
 
     def parse_sqs_message(self, message_body: str) -> DispatchEvent:
         """Parse SQS message body into DispatchEvent.
@@ -62,10 +72,16 @@ class DispatchProcessor:
                 f"Invalid JSON in SQS message: {str(e)}",
                 "invalid_json",
             )
-        except Exception as e:
+        except (TypeError, ValueError) as e:
+            # Pydantic validation errors
             raise ValidationError(
-                f"Failed to parse dispatch event: {str(e)}",
-                "parse_error",
+                f"Failed to validate dispatch event: {str(e)}",
+                "validation_error",
+            )
+        except KeyError as e:
+            raise ValidationError(
+                f"Missing required field in dispatch event: {str(e)}",
+                "missing_field",
             )
 
     async def get_user_ids(
@@ -155,9 +171,7 @@ class DispatchProcessor:
             expires_at=expires_at,
         )
 
-        logger.info(
-            f"Creating {len(user_ids)} assignments for dispatch {dispatch_id}"
-        )
+        logger.info(f"Creating {len(user_ids)} assignments for dispatch {dispatch_id}")
 
         response = await self.form_service_client.create_assignments(
             tenant_id=tenant_id,
@@ -223,9 +237,7 @@ class DispatchProcessor:
 
             # Step 3: Create assignments in batches
             total_created = 0
-            expires_at_str = (
-                event.expires_at.isoformat() if event.expires_at else None
-            )
+            expires_at_str = event.expires_at.isoformat() if event.expires_at else None
 
             for batch_idx, batch in enumerate(batches, start=1):
                 logger.info(
@@ -279,14 +291,25 @@ class DispatchProcessor:
                 f"Failed to create assignments: {str(e)}",
                 "form_service_error",
             )
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
+            # Data validation/processing errors
             logger.error(
-                f"Unexpected error processing dispatch {event.dispatch_id}: {str(e)}",
+                f"Data processing error for dispatch {event.dispatch_id}: {str(e)}",
                 exc_info=True,
             )
             raise WorkerError(
-                f"Unexpected error: {str(e)}",
-                "unexpected_error",
+                f"Data processing error: {str(e)}",
+                "data_processing_error",
+            )
+        except (AttributeError, IndexError) as e:
+            # Programming errors that should be caught
+            logger.error(
+                f"Programming error processing dispatch {event.dispatch_id}: {str(e)}",
+                exc_info=True,
+            )
+            raise WorkerError(
+                f"Processing error: {str(e)}",
+                "processing_error",
             )
 
     async def close(self) -> None:

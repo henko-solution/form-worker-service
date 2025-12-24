@@ -21,7 +21,9 @@ class WorkerError(Exception):
 class EmployeeServiceError(WorkerError):
     """Error raised when Employee Service API call fails."""
 
-    def __init__(self, message: str, error_code: str = "employee_service_error") -> None:
+    def __init__(
+        self, message: str, error_code: str = "employee_service_error"
+    ) -> None:
         """Initialize employee service error.
 
         Args:

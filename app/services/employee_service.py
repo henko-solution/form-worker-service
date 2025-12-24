@@ -14,6 +14,7 @@ import httpx
 
 from ..config import get_settings
 from ..exceptions import EmployeeServiceError
+from .cognito_auth_service import CognitoAuthService
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +22,25 @@ logger = logging.getLogger(__name__)
 class EmployeeService:
     """Client for consuming Employee Service API."""
 
-    def __init__(self, base_url: str | None = None, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout: float = 30.0,
+        auth_service: CognitoAuthService | None = None,
+    ) -> None:
         """Initialize Employee Service client.
 
         Args:
             base_url: Base URL for Employee Service API. If None, uses
                 employee_service_url from settings.
             timeout: Request timeout in seconds
+            auth_service: Cognito authentication service instance
         """
         settings = get_settings()
         self.base_url = base_url or settings.employee_service_url
         self.timeout = timeout
         self._client: httpx.AsyncClient | None = None
+        self.auth_service = auth_service or CognitoAuthService()
 
     @property
     async def client(self) -> httpx.AsyncClient:
@@ -81,12 +89,22 @@ class EmployeeService:
             if area_ids:
                 params["area_ids"] = area_ids
 
+            # Get authentication token
+            access_token = await self.auth_service.get_access_token()
+
+            # Prepare headers
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {access_token}",
+            }
+
             # Make API call
-            # Expected endpoint: GET /api/v1/employees/users?tenant_id=...&role_ids=...&area_ids=...
+            # Expected endpoint:
+            # GET /api/v1/employees/users?tenant_id=...&role_ids=...&area_ids=...
             response = await client.get(
                 "/api/v1/employees/users",
                 params=params,
-                headers={"X-Tenant-ID": tenant_id},
+                headers=headers,
             )
 
             response.raise_for_status()
@@ -112,11 +130,7 @@ class EmployeeService:
                 users = data.get("users", [])
                 if users and isinstance(users[0], dict):
                     # List of user objects with id field
-                    return [
-                        str(user.get("id", ""))
-                        for user in users
-                        if user.get("id")
-                    ]
+                    return [str(user.get("id", "")) for user in users if user.get("id")]
                 else:
                     # List of user IDs
                     return [str(user_id) for user_id in users]
@@ -141,11 +155,18 @@ class EmployeeService:
                 f"Failed to connect to Employee Service: {str(e)}",
                 "employee_service_connection_error",
             )
-        except Exception as e:
-            logger.error(f"Unexpected error calling Employee Service: {str(e)}")
+        except (ValueError, TypeError, KeyError) as e:
+            # Response parsing errors
+            logger.error(f"Employee Service response parsing error: {str(e)}")
             raise EmployeeServiceError(
-                f"Unexpected error: {str(e)}",
-                "employee_service_unexpected_error",
+                f"Failed to parse Employee Service response: {str(e)}",
+                "employee_service_parse_error",
+            )
+        except httpx.TimeoutException as e:
+            logger.error(f"Employee Service timeout: {str(e)}")
+            raise EmployeeServiceError(
+                f"Employee Service request timed out: {str(e)}",
+                "employee_service_timeout",
             )
 
     async def __aenter__(self) -> "EmployeeService":

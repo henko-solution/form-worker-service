@@ -18,10 +18,32 @@ class DispatchEvent(BaseModel):
 
     This represents a form dispatch that needs to be processed
     to create assignments for users.
+
+    Supports both legacy format and new event format with event_type,
+    event_version, timestamp, and form_id.
     """
 
+    # Event metadata (optional for backward compatibility)
+    event_type: str | None = Field(
+        None,
+        description="Type of event (e.g., 'dispatch.created')",
+    )
+    event_version: str | None = Field(
+        None,
+        description="Version of the event schema",
+    )
+    timestamp: datetime | None = Field(
+        None,
+        description="Timestamp when the event was created",
+    )
+
+    # Dispatch data
     dispatch_id: UUID = Field(..., description="ID of the form dispatch")
     tenant_id: str = Field(..., description="Tenant ID for multi-tenant isolation")
+    form_id: UUID | None = Field(
+        None,
+        description="ID of the form associated with the dispatch",
+    )
     role_ids: list[UUID] = Field(
         default_factory=list,
         description="List of role IDs to filter users",
@@ -94,22 +116,24 @@ class DispatchEvent(BaseModel):
             ValueError: If both role_ids and area_ids are empty
         """
         if not self.role_ids and not self.area_ids:
-            raise ValueError(
-                "At least one of role_ids or area_ids must be provided"
-            )
+            raise ValueError("At least one of role_ids or area_ids must be provided")
 
     class Config:
         """Pydantic configuration."""
 
         json_schema_extra = {
             "example": {
+                "event_type": "dispatch.created",
+                "event_version": "1.0",
+                "timestamp": "2025-12-22T16:30:00Z",
                 "dispatch_id": "550e8400-e29b-41d4-a716-446655440000",
                 "tenant_id": "henko-main",
-                "role_ids": ["550e8400-e29b-41d4-a716-446655440001"],
-                "area_ids": ["550e8400-e29b-41d4-a716-446655440002"],
-                "expires_at": "2025-12-31T23:59:59Z",
-                "created_at": "2025-12-15T12:00:00Z",
-                "created_by": "user-uuid",
+                "form_id": "660e8400-e29b-41d4-a716-446655440001",
+                "role_ids": ["770e8400-e29b-41d4-a716-446655440002"],
+                "area_ids": ["880e8400-e29b-41d4-a716-446655440003"],
+                "expires_at": "2026-01-01T23:59:59Z",
+                "created_by": "990e8400-e29b-41d4-a716-446655440004",
+                "created_at": "2025-12-22T16:30:00Z",
             }
         }
 
@@ -146,7 +170,10 @@ class SQSEvent(BaseModel):
                         "messageAttributes": {},
                         "md5OfBody": "7b270e59b47ff90a553787216d55d91d",
                         "eventSource": "aws:sqs",
-                        "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:form-dispatch-events-qa",
+                        "eventSourceARN": (
+                            "arn:aws:sqs:us-east-1:123456789012:"
+                            "form-dispatch-events-qa"
+                        ),
                         "awsRegion": "us-east-1",
                     }
                 ]

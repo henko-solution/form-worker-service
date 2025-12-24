@@ -15,6 +15,7 @@ import httpx
 from ..config import get_settings
 from ..exceptions import FormServiceError
 from ..models.events import CreateAssignmentRequest
+from .cognito_auth_service import CognitoAuthService
 
 logger = logging.getLogger(__name__)
 
@@ -22,19 +23,27 @@ logger = logging.getLogger(__name__)
 class FormServiceClient:
     """Client for consuming Form Service internal API."""
 
-    def __init__(self, base_url: str | None = None, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout: float = 30.0,
+        auth_service: CognitoAuthService | None = None,
+    ) -> None:
         """Initialize Form Service client.
 
         Args:
             base_url: Base URL for Form Service API. If None, uses
                 form_service_url from settings.
             timeout: Request timeout in seconds
+            auth_service: Cognito authentication service instance
         """
         settings = get_settings()
         self.base_url = base_url or settings.form_service_url
-        self.api_key = settings.internal_api_key
         self.timeout = timeout
         self._client: httpx.AsyncClient | None = None
+        self.auth_service = auth_service or CognitoAuthService()
+        # Keep API key for backward compatibility (deprecated)
+        self.api_key = settings.internal_api_key
 
     @property
     async def client(self) -> httpx.AsyncClient:
@@ -74,12 +83,24 @@ class FormServiceClient:
         try:
             client = await self.client
 
+            # Get authentication token
+            access_token = await self.auth_service.get_access_token()
+
             # Prepare headers
             headers = {
                 "X-Tenant-ID": tenant_id,
-                "X-API-Key": self.api_key,
+                "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
             }
+
+            # Fallback to API key if Cognito is not configured (backward compatibility)
+            if not access_token and self.api_key:
+                logger.warning(
+                    "Using deprecated API key authentication. "
+                    "Please configure Cognito authentication."
+                )
+                headers["X-API-Key"] = self.api_key
+                headers.pop("Authorization", None)
 
             # Make API call to internal endpoint
             response = await client.post(
@@ -108,11 +129,18 @@ class FormServiceClient:
                 f"Failed to connect to Form Service: {str(e)}",
                 "form_service_connection_error",
             )
-        except Exception as e:
-            logger.error(f"Unexpected error calling Form Service: {str(e)}")
+        except (ValueError, TypeError, KeyError) as e:
+            # Response parsing errors
+            logger.error(f"Form Service response parsing error: {str(e)}")
             raise FormServiceError(
-                f"Unexpected error: {str(e)}",
-                "form_service_unexpected_error",
+                f"Failed to parse Form Service response: {str(e)}",
+                "form_service_parse_error",
+            )
+        except httpx.TimeoutException as e:
+            logger.error(f"Form Service timeout: {str(e)}")
+            raise FormServiceError(
+                f"Form Service request timed out: {str(e)}",
+                "form_service_timeout",
             )
 
     async def __aenter__(self) -> "FormServiceClient":

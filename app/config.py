@@ -55,7 +55,14 @@ class Settings(BaseSettings):
     form_service_url: str = "http://localhost:8002"
     employee_service_url: str = "http://localhost:8001"
 
-    # Internal API Authentication
+    # Cognito Configuration
+    cognito_user_pool_id: str = ""
+    cognito_client_id: str = ""
+    cognito_client_secret: str | None = None
+    cognito_system_username: str = ""
+    cognito_system_password: str = ""
+
+    # Internal API Authentication (deprecated - use Cognito instead)
     internal_api_key: str = ""
 
     # Retry Configuration
@@ -67,13 +74,24 @@ class Settings(BaseSettings):
 
     def __repr__(self) -> str:
         """Return string representation of settings (without sensitive data)."""
+        sqs_url_repr = (
+            self.sqs_queue_url[:50] + "..."
+            if len(self.sqs_queue_url) > 50
+            else self.sqs_queue_url
+        )
+        cognito_id_repr = (
+            self.cognito_user_pool_id[:20] + "..."
+            if len(self.cognito_user_pool_id) > 20
+            else self.cognito_user_pool_id
+        )
         return (
             f"Settings("
             f"app_name={self.app_name!r}, "
             f"aws_region={self.aws_region!r}, "
-            f"sqs_queue_url={self.sqs_queue_url[:50] + '...' if len(self.sqs_queue_url) > 50 else self.sqs_queue_url!r}, "
+            f"sqs_queue_url={sqs_url_repr!r}, "
             f"form_service_url={self.form_service_url!r}, "
             f"employee_service_url={self.employee_service_url!r}, "
+            f"cognito_user_pool_id={cognito_id_repr!r}, "
             f"max_retries={self.max_retries}, "
             f"assignment_batch_size={self.assignment_batch_size}"
             f")"
