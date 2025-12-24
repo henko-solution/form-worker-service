@@ -80,9 +80,9 @@ class EmployeeService:
         """Get user IDs from Employee Service filtered by role and/or area.
 
         Args:
-            tenant_id: Tenant ID for filtering
-            role_ids: Optional list of role UUIDs to filter by
-            area_ids: Optional list of area UUIDs to filter by
+            tenant_id: Tenant ID for filtering (sent as X-Tenant-ID header)
+            role_ids: Optional list of role UUIDs to filter by (mapped to positions_in)
+            area_ids: Optional list of area UUIDs to filter by (mapped to departments_in)
 
         Returns:
             List of user IDs (UUIDs as strings)
@@ -92,27 +92,31 @@ class EmployeeService:
         """
         try:
             # Build query parameters
-            params: dict[str, Any] = {"tenant_id": tenant_id}
+            # Note: role_ids maps to positions_in, area_ids maps to departments_in
+            params: dict[str, Any] = {"skip": 0, "limit": 100}
             if role_ids:
-                params["role_ids"] = role_ids
+                params["positions_in"] = role_ids
             if area_ids:
-                params["area_ids"] = area_ids
+                params["departments_in"] = area_ids
 
             # Get authentication token
             access_token = self.auth_service.get_access_token()
 
             # Prepare headers
+            # X-Tenant-ID is sent as header, not query parameter
             headers = {
                 "X-Tenant-ID": tenant_id,
                 "Authorization": f"Bearer {access_token}",
+                "accept": "application/json",
             }
 
             # Build full URL
-            url = f"{self.base_url}/api/v1/employees/users"
+            # Endpoint: GET /employees/
+            url = f"{self.base_url}/employees/"
 
             # Make API call
             # Expected endpoint:
-            # GET /api/v1/employees/users?tenant_id=...&role_ids=...&area_ids=...
+            # GET /employees/?skip=0&limit=100&positions_in=...&departments_in=...
             response = self.session.get(
                 url,
                 params=params,
@@ -125,28 +129,31 @@ class EmployeeService:
             # Parse response
             data = response.json()
 
-            # Expected response format:
+            # Expected response format from /employees/ endpoint:
             # {
-            #   "users": [
+            #   "items": [
             #     {"id": "uuid1", ...},
             #     {"id": "uuid2", ...}
-            #   ]
+            #   ],
+            #   "total": 100,
+            #   "skip": 0,
+            #   "limit": 100
             # }
-            # Or:
-            # ["uuid1", "uuid2", ...]
+            # Or direct list:
+            # [{"id": "uuid1", ...}, {"id": "uuid2", ...}]
 
             if isinstance(data, list):
-                # Direct list of user IDs
-                return [str(user_id) for user_id in data]
+                # Direct list of user objects
+                return [str(user.get("id", "")) for user in data if user.get("id")]
             elif isinstance(data, dict):
-                # Object with users array
-                users = data.get("users", [])
-                if users and isinstance(users[0], dict):
+                # Object with items array (pagination format)
+                items = data.get("items", [])
+                if items and isinstance(items[0], dict):
                     # List of user objects with id field
-                    return [str(user.get("id", "")) for user in users if user.get("id")]
+                    return [str(user.get("id", "")) for user in items if user.get("id")]
                 else:
                     # List of user IDs
-                    return [str(user_id) for user_id in users]
+                    return [str(user_id) for user_id in items]
             else:
                 logger.warning(
                     f"Unexpected response format from Employee Service: {type(data)}"
