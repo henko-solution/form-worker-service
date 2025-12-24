@@ -61,7 +61,7 @@ class CognitoAuthService:
         # Initialize Cognito client
         self.client = boto3.client("cognito-idp", region_name=self.region)
 
-        logger.info(
+        logger.debug(
             f"Initialized CognitoAuthService for user pool: {self.user_pool_id}, "
             f"client_id: {self.client_id}, "
             f"has_client_secret: {bool(self.client_secret)}"
@@ -116,11 +116,10 @@ class CognitoAuthService:
             if self.client_secret:
                 secret_hash = self._calculate_secret_hash(self.username)
                 auth_params["SECRET_HASH"] = secret_hash
-                logger.debug("Added SECRET_HASH to authentication parameters")
             else:
-                logger.warning(
-                    "No client_secret provided. If Cognito client has a secret configured, "
-                    "authentication will fail. Check COGNITO_CLIENT_SECRET environment variable."
+                # Only warn if client_secret is missing (could be intentional if client has no secret)
+                logger.debug(
+                    "No client_secret provided. Authentication will proceed without SECRET_HASH."
                 )
 
             # Authenticate with Cognito
@@ -130,10 +129,41 @@ class CognitoAuthService:
                 AuthParameters=auth_params,
             )
 
+            # Log response structure for debugging (without sensitive data)
+            logger.debug(
+                f"Cognito response keys: {list(response.keys())}, "
+                f"has_AuthenticationResult: {'AuthenticationResult' in response}"
+            )
+
             # Extract tokens from response
             if "AuthenticationResult" not in response:
+                # Log full response structure for debugging
+                response_keys = list(response.keys())
+                logger.error(
+                    f"Cognito authentication response structure: {response_keys}"
+                )
+
+                # Check if there's a challenge required
+                if "ChallengeName" in response:
+                    challenge_name = response.get("ChallengeName")
+                    logger.error(
+                        f"Cognito requires challenge: {challenge_name}. "
+                        f"This may indicate the user needs to change password or complete MFA."
+                    )
+                    raise WorkerError(
+                        f"Cognito authentication requires challenge: {challenge_name}. "
+                        "System user may need password reset or MFA configuration.",
+                        "cognito_challenge_required",
+                    )
+
+                # Log any other information in the response
+                if "Session" in response:
+                    logger.debug("Cognito returned Session (challenge flow)")
+
                 raise WorkerError(
-                    "Authentication result not found in Cognito response",
+                    "Authentication result not found in Cognito response. "
+                    f"Response structure: {response_keys}. "
+                    "Check Cognito user pool configuration and system user status.",
                     "cognito_auth_error",
                 )
 
@@ -165,6 +195,9 @@ class CognitoAuthService:
             logger.error(
                 f"Cognito authentication failed: {error_code} - {error_message}"
             )
+            # Log additional context if available
+            if "Error" in e.response:
+                logger.error(f"Full error response: {e.response.get('Error')}")
             raise WorkerError(
                 f"Cognito authentication failed: {error_message}",
                 "cognito_auth_error",
