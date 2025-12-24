@@ -138,6 +138,10 @@ module "lambda_worker" {
   log_retention_days    = var.log_retention_days
   cloudwatch_kms_key_id = var.cloudwatch_kms_key_id
 
+  # Lambda Layer configuration
+  create_layer  = true
+  layer_filename = "lambda-layer.zip"
+
   common_tags = local.common_tags
 }
 
