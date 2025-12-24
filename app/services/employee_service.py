@@ -39,7 +39,12 @@ class EmployeeService:
             auth_service: Cognito authentication service instance
         """
         settings = get_settings()
-        self.base_url = base_url or settings.employee_service_url
+        base_url_raw = base_url or settings.employee_service_url
+        # Ensure base_url has protocol prefix
+        if base_url_raw and not base_url_raw.startswith(("http://", "https://")):
+            self.base_url = f"https://{base_url_raw}"
+        else:
+            self.base_url = base_url_raw
         self.timeout = timeout
         self.auth_service = auth_service or CognitoAuthService()
         # Create a session with retry strategy
