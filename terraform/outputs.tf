@@ -83,14 +83,14 @@ output "sqs_console_url" {
 output "deployment_summary" {
   description = "Deployment summary"
   value = {
-    environment              = var.environment
-    project_name             = local.project_name
-    aws_region               = var.aws_region
-    lambda_function_name     = module.lambda_worker.lambda_function_name
-    lambda_function_arn      = module.lambda_worker.lambda_function_arn
-    sqs_queue_url           = aws_sqs_queue.dispatch_events.url
-    sqs_queue_arn           = aws_sqs_queue.dispatch_events.arn
-    sqs_dlq_url             = aws_sqs_queue.dispatch_events_dlq.url
-    cloudwatch_log_group     = module.lambda_worker.cloudwatch_log_group_name
+    environment          = var.environment
+    project_name         = local.project_name
+    aws_region           = var.aws_region
+    lambda_function_name = module.lambda_worker.lambda_function_name
+    lambda_function_arn  = module.lambda_worker.lambda_function_arn
+    sqs_queue_url        = aws_sqs_queue.dispatch_events.url
+    sqs_queue_arn        = aws_sqs_queue.dispatch_events.arn
+    sqs_dlq_url          = aws_sqs_queue.dispatch_events_dlq.url
+    cloudwatch_log_group = module.lambda_worker.cloudwatch_log_group_name
   }
 }

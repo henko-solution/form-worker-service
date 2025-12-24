@@ -91,7 +91,7 @@ class CognitoAuthService:
 
         return base64.b64encode(digest).decode("utf-8")
 
-    async def authenticate(self) -> str:
+    def authenticate(self) -> str:
         """Authenticate with Cognito and get access token.
 
         Returns:
@@ -209,7 +209,7 @@ class CognitoAuthService:
                 "cognito_parse_error",
             )
 
-    async def refresh_access_token(self) -> str:
+    def refresh_access_token(self) -> str:
         """Refresh access token using refresh token.
 
         Returns:
@@ -220,7 +220,7 @@ class CognitoAuthService:
         """
         if not self._refresh_token:
             # No refresh token available, need to re-authenticate
-            return await self.authenticate()
+            return self.authenticate()
 
         try:
             logger.debug("Refreshing Cognito access token")
@@ -270,7 +270,7 @@ class CognitoAuthService:
             self._access_token = None
             self._refresh_token = None
             self._token_expires_at = None
-            return await self.authenticate()
+            return self.authenticate()
         except (ValueError, TypeError, KeyError) as e:
             logger.error(f"Error processing Cognito refresh response: {str(e)}")
             raise WorkerError(
@@ -278,7 +278,7 @@ class CognitoAuthService:
                 "cognito_parse_error",
             )
 
-    async def get_access_token(self) -> str:
+    def get_access_token(self) -> str:
         """Get valid access token, refreshing if necessary.
 
         Returns:
@@ -299,14 +299,14 @@ class CognitoAuthService:
         # Token expired or not available, refresh or authenticate
         if self._refresh_token:
             try:
-                return await self.refresh_access_token()
+                return self.refresh_access_token()
             except WorkerError:
                 # Refresh failed, try full authentication
                 logger.debug("Token refresh failed, re-authenticating")
-                return await self.authenticate()
+                return self.authenticate()
         else:
             # No refresh token, need to authenticate
-            return await self.authenticate()
+            return self.authenticate()
 
     def clear_tokens(self) -> None:
         """Clear cached tokens (useful for testing or forced re-authentication)."""

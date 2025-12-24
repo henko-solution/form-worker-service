@@ -84,7 +84,7 @@ class DispatchProcessor:
                 "missing_field",
             )
 
-    async def get_user_ids(
+    def get_user_ids(
         self,
         tenant_id: str,
         role_ids: list[UUID] | None = None,
@@ -120,7 +120,7 @@ class DispatchProcessor:
                 f"area_ids={len(area_ids_str) if area_ids_str else 0}"
             )
 
-        user_ids = await self.employee_service.get_users_by_role_and_area(
+        user_ids = self.employee_service.get_users_by_role_and_area(
             tenant_id=tenant_id,
             role_ids=role_ids_str,
             area_ids=area_ids_str,
@@ -151,7 +151,7 @@ class DispatchProcessor:
             batches.append(items[i : i + batch_size])
         return batches
 
-    async def create_assignments_batch(
+    def create_assignments_batch(
         self,
         tenant_id: str,
         dispatch_id: UUID,
@@ -180,7 +180,7 @@ class DispatchProcessor:
 
         logger.info(f"Creating {len(user_ids)} assignments for dispatch {dispatch_id}")
 
-        response = await self.form_service_client.create_assignments(
+        response = self.form_service_client.create_assignments(
             tenant_id=tenant_id,
             request=request,
         )
@@ -192,7 +192,7 @@ class DispatchProcessor:
 
         return response
 
-    async def process_dispatch_event(self, event: DispatchEvent) -> dict[str, Any]:
+    def process_dispatch_event(self, event: DispatchEvent) -> dict[str, Any]:
         """Process a single dispatch event.
 
         This is the main processing logic:
@@ -217,7 +217,7 @@ class DispatchProcessor:
         try:
             # Step 1: Get user IDs from Employee Service
             # If role_ids and area_ids are None/empty, all users will be returned
-            user_ids = await self.get_user_ids(
+            user_ids = self.get_user_ids(
                 tenant_id=event.tenant_id,
                 role_ids=event.role_ids,
                 area_ids=event.area_ids,
@@ -254,7 +254,7 @@ class DispatchProcessor:
                 )
 
                 try:
-                    response = await self.create_assignments_batch(
+                    response = self.create_assignments_batch(
                         tenant_id=event.tenant_id,
                         dispatch_id=event.dispatch_id,
                         user_ids=batch,
@@ -320,13 +320,13 @@ class DispatchProcessor:
                 "processing_error",
             )
 
-    async def close(self) -> None:
+    def close(self) -> None:
         """Close service clients."""
         try:
-            await self.employee_service.close()
+            self.employee_service.close()
         except Exception as e:
             logger.warning(f"Error closing employee service: {str(e)}")
         try:
-            await self.form_service_client.close()
+            self.form_service_client.close()
         except Exception as e:
             logger.warning(f"Error closing form service client: {str(e)}")

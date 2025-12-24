@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from ..config import get_settings
 from ..exceptions import EmployeeServiceError
@@ -39,49 +41,37 @@ class EmployeeService:
         settings = get_settings()
         self.base_url = base_url or settings.employee_service_url
         self.timeout = timeout
-        self._client: httpx.AsyncClient | None = None
         self.auth_service = auth_service or CognitoAuthService()
+        # Create a session with retry strategy
+        self._session: requests.Session | None = None
 
     @property
-    async def client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
-        # In Lambda, always create a fresh client to avoid "Device or resource busy" errors
-        # when containers are reused between invocations
-        if self._client is None:
-            base_url_str: str = str(self.base_url) if self.base_url else ""
-            self._client = httpx.AsyncClient(
-                base_url=base_url_str,
-                timeout=self.timeout,
-                follow_redirects=True,
-                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+    def session(self) -> requests.Session:
+        """Get or create HTTP session."""
+        if self._session is None:
+            self._session = requests.Session()
+            # Configure retry strategy
+            retry_strategy = Retry(
+                total=3,
+                backoff_factor=1,
+                status_forcelist=[429, 500, 502, 503, 504],
             )
-        # Check if client is closed and recreate if needed
-        elif hasattr(self._client, "is_closed") and self._client.is_closed:
-            try:
-                await self._client.aclose()
-            except Exception:
-                pass  # Ignore errors when closing already closed client
-            self._client = None
-            base_url_str: str = str(self.base_url) if self.base_url else ""
-            self._client = httpx.AsyncClient(
-                base_url=base_url_str,
-                timeout=self.timeout,
-                follow_redirects=True,
-                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
-            )
-        return self._client
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            self._session.mount("http://", adapter)
+            self._session.mount("https://", adapter)
+        return self._session
 
-    async def close(self) -> None:
-        """Close HTTP client."""
-        if self._client is not None:
+    def close(self) -> None:
+        """Close HTTP session."""
+        if self._session is not None:
             try:
-                await self._client.aclose()
+                self._session.close()
             except Exception as e:
-                logger.warning(f"Error closing HTTP client: {str(e)}")
+                logger.warning(f"Error closing HTTP session: {str(e)}")
             finally:
-                self._client = None
+                self._session = None
 
-    async def get_users_by_role_and_area(
+    def get_users_by_role_and_area(
         self,
         tenant_id: str,
         role_ids: list[str] | None = None,
@@ -101,8 +91,6 @@ class EmployeeService:
             EmployeeServiceError: If API call fails or returns invalid response
         """
         try:
-            client = await self.client
-
             # Build query parameters
             params: dict[str, Any] = {"tenant_id": tenant_id}
             if role_ids:
@@ -111,7 +99,7 @@ class EmployeeService:
                 params["area_ids"] = area_ids
 
             # Get authentication token
-            access_token = await self.auth_service.get_access_token()
+            access_token = self.auth_service.get_access_token()
 
             # Prepare headers
             headers = {
@@ -119,13 +107,17 @@ class EmployeeService:
                 "Authorization": f"Bearer {access_token}",
             }
 
+            # Build full URL
+            url = f"{self.base_url}/api/v1/employees/users"
+
             # Make API call
             # Expected endpoint:
             # GET /api/v1/employees/users?tenant_id=...&role_ids=...&area_ids=...
-            response = await client.get(
-                "/api/v1/employees/users",
+            response = self.session.get(
+                url,
                 params=params,
                 headers=headers,
+                timeout=self.timeout,
             )
 
             response.raise_for_status()
@@ -161,16 +153,18 @@ class EmployeeService:
                 )
                 return []
 
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             logger.error(
                 f"Employee Service API error: "
-                f"{e.response.status_code} - {e.response.text}"
+                f"{e.response.status_code if e.response else 'Unknown'} - "
+                f"{e.response.text if e.response else str(e)}"
             )
             raise EmployeeServiceError(
-                f"Employee Service API returned {e.response.status_code}: {str(e)}",
+                f"Employee Service API returned "
+                f"{e.response.status_code if e.response else 'unknown status'}: {str(e)}",
                 "employee_service_api_error",
             )
-        except httpx.RequestError as e:
+        except requests.RequestException as e:
             logger.error(f"Employee Service request error: {str(e)}")
             raise EmployeeServiceError(
                 f"Failed to connect to Employee Service: {str(e)}",
@@ -183,17 +177,9 @@ class EmployeeService:
                 f"Failed to parse Employee Service response: {str(e)}",
                 "employee_service_parse_error",
             )
-        except httpx.TimeoutException as e:
+        except requests.Timeout as e:
             logger.error(f"Employee Service timeout: {str(e)}")
             raise EmployeeServiceError(
                 f"Employee Service request timed out: {str(e)}",
                 "employee_service_timeout",
             )
-
-    async def __aenter__(self) -> "EmployeeService":
-        """Async context manager entry."""
-        return self
-
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Async context manager exit."""
-        await self.close()

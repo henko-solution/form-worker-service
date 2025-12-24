@@ -4,7 +4,6 @@ Lambda handler for processing SQS events.
 This is the entry point for the Lambda function triggered by SQS.
 """
 
-import asyncio
 import logging
 from typing import Any
 
@@ -57,8 +56,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     logger.info(f"Processing {len(records)} SQS message(s)")
 
-    # Run async processing
-    result = asyncio.run(process_sqs_records(records))
+    # Process records synchronously
+    result = process_sqs_records(records)
 
     logger.info(
         f"Processing complete: {result['processed']} processed, "
@@ -68,8 +67,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     return result
 
 
-async def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Process SQS records asynchronously.
+def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Process SQS records.
 
     Args:
         records: List of SQS records
@@ -99,7 +98,7 @@ async def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
 
                 # Parse and process dispatch event
                 dispatch_event = processor.parse_sqs_message(message_body)
-                result = await processor.process_dispatch_event(dispatch_event)
+                result = processor.process_dispatch_event(dispatch_event)
 
                 results.append(
                     {
@@ -170,7 +169,7 @@ async def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
 
     finally:
         # Always close clients
-        await processor.close()
+        processor.close()
 
     return {
         "processed": len(records),
