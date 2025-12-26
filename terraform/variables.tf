@@ -164,3 +164,10 @@ variable "cloudwatch_kms_key_id" {
   type        = string
   default     = null
 }
+
+# VPC Configuration
+variable "vpc_id" {
+  description = "VPC ID where Lambda will be deployed"
+  type        = string
+  default     = ""
+}

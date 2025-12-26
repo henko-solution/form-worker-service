@@ -1,8 +1,5 @@
 """
 Form Service API client for creating assignments.
-
-This service calls the internal form-service API endpoint
-to create assignments for users.
 """
 
 from __future__ import annotations
@@ -23,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class FormServiceClient:
-    """Client for consuming Form Service internal API."""
+    """Client for consuming Form Service API."""
 
     def __init__(
         self,
@@ -31,129 +28,101 @@ class FormServiceClient:
         timeout: float = 30.0,
         auth_service: CognitoAuthService | None = None,
     ) -> None:
-        """Initialize Form Service client.
-
-        Args:
-            base_url: Base URL for Form Service API. If None, uses
-                form_service_url from settings.
-            timeout: Request timeout in seconds
-            auth_service: Cognito authentication service instance
-        """
+        """Initialize Form Service client with optimized session."""
         settings = get_settings()
-        self.base_url = base_url or settings.form_service_url
+        self.base_url = (
+            (base_url or settings.form_service_url or "").strip().rstrip("/")
+        )
         self.timeout = timeout
         self.auth_service = auth_service or CognitoAuthService()
-        # Keep API key for backward compatibility (deprecated)
-        self.api_key = settings.internal_api_key
-        # Create a session with retry strategy
-        self._session: requests.Session | None = None
 
-    @property
-    def session(self) -> requests.Session:
-        """Get or create HTTP session."""
-        if self._session is None:
-            self._session = requests.Session()
-            # Configure retry strategy
-            retry_strategy = Retry(
-                total=3,
-                backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            self._session.mount("http://", adapter)
-            self._session.mount("https://", adapter)
-        return self._session
+        # Create session with connection pooling
+        self.session = requests.Session()
+
+        # Configure HTTP adapter with connection pooling
+        # pool_connections: number of connection pools to cache
+        # pool_maxsize: maximum number of connections to save in the pool
+        adapter = HTTPAdapter(
+            pool_connections=1,  # Single connection pool for this service
+            pool_maxsize=10,  # Allow up to 10 connections in the pool
+            max_retries=Retry(
+                # Disable automatic retries (we handle retries at higher level)
+                total=0,
+                backoff_factor=0,
+            ),
+        )
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+
+        # Set default headers for all requests
+        self.session.headers.update(
+            {
+                "Content-Type": "application/json",
+                "accept": "application/json",
+            }
+        )
 
     def close(self) -> None:
         """Close HTTP session."""
-        if self._session is not None:
-            try:
-                self._session.close()
-            except Exception as e:
-                logger.warning(f"Error closing HTTP session: {str(e)}")
-            finally:
-                self._session = None
+        if self.session:
+            self.session.close()
 
     def create_assignments(
         self,
         tenant_id: str,
         request: CreateAssignmentRequest,
     ) -> dict[str, Any]:
-        """Create assignments via Form Service internal API.
-
-        Args:
-            tenant_id: Tenant ID for multi-tenant isolation
-            request: Assignment creation request
-
-        Returns:
-            Response from Form Service API with created assignments
-
-        Raises:
-            FormServiceError: If API call fails
-        """
+        """Create assignments via Form Service API."""
         try:
-            # Get authentication token
-            access_token = self.auth_service.get_access_token()
-
-            # Prepare headers
+            # Headers that change per request (override session defaults)
             headers = {
                 "X-Tenant-ID": tenant_id,
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
             }
 
-            # Fallback to API key if Cognito is not configured (backward compatibility)
-            if not access_token and self.api_key:
-                logger.warning(
-                    "Using deprecated API key authentication. "
-                    "Please configure Cognito authentication."
-                )
-                headers["X-API-Key"] = self.api_key
-                headers.pop("Authorization", None)
+            url = f"{self.base_url}/assignments"
+            payload = request.model_dump(mode="json")
 
-            # Build full URL
-            url = f"{self.base_url}/internal/assignments"
-
-            # Make API call to internal endpoint
             response = self.session.post(
                 url,
-                json=request.model_dump(mode="json"),
+                json=payload,
                 headers=headers,
                 timeout=self.timeout,
             )
 
             response.raise_for_status()
+            result = response.json()
 
-            # Parse and return response
-            return response.json()
+            # The endpoint returns a list of FormAssignmentResponse
+            # Convert to dict format for compatibility
+            if isinstance(result, list):
+                return {"assignments": result, "total_created": len(result)}
+            elif isinstance(result, dict):
+                # If it's already a dict, return as is
+                return result
+            else:
+                # Unexpected format, log warning but return what we got
+                logger.warning(
+                    f"Unexpected response format from Form Service: {type(result)}"
+                )
+                return {"assignments": [], "total_created": 0}
 
         except requests.HTTPError as e:
-            logger.error(
-                f"Form Service API error: "
-                f"{e.response.status_code if e.response else 'Unknown'} - "
-                f"{e.response.text if e.response else str(e)}"
-            )
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error("Form Service API error: %s", status)
             raise FormServiceError(
-                f"Form Service API returned "
-                f"{e.response.status_code if e.response else 'unknown status'}: {str(e)}",
+                f"Form Service API returned {status}",
                 "form_service_api_error",
             )
         except requests.RequestException as e:
-            logger.error(f"Form Service request error: {str(e)}")
+            logger.error("Form Service request error: %s", e)
             raise FormServiceError(
-                f"Failed to connect to Form Service: {str(e)}",
+                f"Failed to connect to Form Service: {e}",
                 "form_service_connection_error",
             )
-        except (ValueError, TypeError, KeyError) as e:
-            # Response parsing errors
-            logger.error(f"Form Service response parsing error: {str(e)}")
+        except Exception as e:
+            logger.error("Form Service error: %s", e)
             raise FormServiceError(
-                f"Failed to parse Form Service response: {str(e)}",
-                "form_service_parse_error",
-            )
-        except requests.Timeout as e:
-            logger.error(f"Form Service timeout: {str(e)}")
-            raise FormServiceError(
-                f"Form Service request timed out: {str(e)}",
-                "form_service_timeout",
+                f"Form Service error: {e}",
+                "form_service_error",
             )

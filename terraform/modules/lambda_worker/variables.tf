@@ -97,3 +97,16 @@ variable "common_tags" {
   type        = map(string)
   default     = {}
 }
+
+# VPC Configuration
+variable "vpc_id" {
+  description = "VPC ID where Lambda will be deployed"
+  type        = string
+  default     = ""
+}
+
+variable "subnet_ids" {
+  description = "Subnet IDs for Lambda VPC configuration"
+  type        = list(string)
+  default     = []
+}

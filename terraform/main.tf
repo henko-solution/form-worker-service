@@ -33,6 +33,15 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
+# VPC and Subnet data sources
+data "aws_subnets" "private" {
+  count = var.vpc_id != "" ? 1 : 0
+  filter {
+    name   = "vpc-id"
+    values = [var.vpc_id]
+  }
+}
+
 # Secrets Manager data source for Cognito password (optional - can use direct variable)
 data "aws_secretsmanager_secret" "cognito_system_password" {
   count = var.cognito_system_password_secret_name != "" ? 1 : 0
@@ -152,6 +161,10 @@ module "lambda_worker" {
   # Lambda Layer configuration
   create_layer   = true
   layer_filename = "lambda-layer.zip"
+
+  # VPC configuration
+  vpc_id     = var.vpc_id
+  subnet_ids = var.vpc_id != "" ? data.aws_subnets.private[0].ids : []
 
   common_tags = local.common_tags
 }

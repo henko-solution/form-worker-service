@@ -52,11 +52,15 @@ form-worker-service/
 
 - ✅ **Event-Driven**: Processes SQS events asynchronously
 - ✅ **Multi-tenant Support**: Tenant-aware processing
-- ✅ **Batch Processing**: Creates assignments in configurable batches
+- ✅ **Automatic Pagination**: Retrieves all users from Employee Service regardless of count
+- ✅ **Optimized Batch Processing**: Creates assignments in large batches (up to 1000 users per call)
+- ✅ **Connection Pooling**: Reuses HTTP connections for better performance
+- ✅ **Duplicate Handling**: Automatically handles duplicate assignments (idempotent)
 - ✅ **Error Handling**: Comprehensive error handling with retries
-- ✅ **Logging**: Structured logging for observability
+- ✅ **Efficient Logging**: Optimized logging with argument formatting (only interpolates when needed)
 - ✅ **Cognito Authentication**: Secure service-to-service authentication
 - ✅ **No Database**: Stateless worker, communicates via APIs only
+- ✅ **VPC Support**: Can be deployed in VPC for private network access
 
 ## 🏃‍♂️ Quick Start
 
@@ -209,6 +213,7 @@ export TF_TOKEN_app_terraform_io="tu_token_de_terraform_cloud"
 - Handler: `lambda_handler.lambda_handler`
 - Timeout: 15 minutes (for large batches)
 - Memory: 512 MB (adjust based on batch size)
+- VPC: Deployed in private subnet with security group for outbound HTTPS/HTTP
 
 **SQS Trigger:**
 - Event Source: SQS Queue
@@ -260,26 +265,39 @@ The model supports both the new event format (with `event_type`, `event_version`
 
 ### 3. Get Users
 
-Calls Employee Service API to get user IDs:
+Calls Employee Service API to get user IDs with automatic pagination:
 
 ```
-GET /api/v1/employees/users?tenant_id=...&role_ids=...&area_ids=...
-→ Returns: ["user-id-1", "user-id-2", ...]
+GET /employees/?tenant_id=...&positions_in=...&departments_in=...&skip=0&limit=100
+→ Returns paginated response with all users across all pages
+→ Automatically paginates to retrieve all users
 ```
+
+**Features**:
+- Automatic pagination: Retrieves all users regardless of total count
+- Supports filtering by `role_ids` (mapped to `positions_in`) and `area_ids` (mapped to `departments_in`)
+- If `role_ids` and `area_ids` are `None`, retrieves ALL users for the tenant
 
 ### 4. Create Assignments
 
-Splits users into batches and creates assignments:
+Creates assignments in optimized batches:
 
 ```
-POST /internal/assignments
+POST /assignments
 {
   "dispatch_id": "...",
   "user_ids": ["user-id-1", "user-id-2", ...],
   "expires_at": "..."
 }
 → Creates assignments in Form Service
+→ Automatically handles duplicates (on_conflict_do_nothing)
 ```
+
+**Features**:
+- Optimized batches: Up to 1000 users per API call (configurable)
+- Single API call for ≤1000 users (most efficient)
+- Automatic duplicate handling: Existing assignments are ignored (no errors)
+- Connection pooling: Reuses HTTP connections for better performance
 
 ### 5. Return Result
 
@@ -328,11 +346,13 @@ Returns processing statistics:
 
 ### Batch Processing
 
-Assignments are created in batches to avoid timeouts and rate limits:
+Assignments are created in optimized batches:
 
-- **Default Batch Size**: 100 users per batch
+- **Maximum Batch Size**: 1000 users per batch (optimized for efficiency)
 - **Configurable**: Via `ASSIGNMENT_BATCH_SIZE` environment variable
-- **Automatic Splitting**: Users are automatically split into batches
+- **Single Call Optimization**: If users ≤ batch_size, makes single API call
+- **Automatic Splitting**: Users are automatically split into batches only if needed
+- **Duplicate Handling**: Endpoint automatically ignores duplicate assignments (same dispatch_id + user_id)
 
 ## 🛡️ Error Handling
 
@@ -350,12 +370,27 @@ Failed messages after max retries are sent to DLQ for manual review.
 
 ### CloudWatch Logs
 
-All processing is logged to CloudWatch:
+All processing is logged to CloudWatch with optimized logging:
 
-- Message processing start/end
-- User count from Employee Service
-- Assignment creation results
-- Errors and exceptions
+**INFO Level** (Production):
+- Lambda handler invoked
+- Processing dispatch (dispatch_id, tenant_id)
+- Users found count
+- Batch processing (only if multiple batches)
+- Assignments created
+- Processing complete summary
+
+**DEBUG Level** (Troubleshooting):
+- Detailed HTTP request/response information
+- Pagination details
+- Assignment IDs
+- Full error stack traces
+
+**Logging Best Practices**:
+- Uses argument formatting (`logger.info("Message: %s", value)`) for efficiency
+- Only interpolates strings when log level is enabled
+- Minimal verbosity in production (INFO level)
+- Detailed debugging available via DEBUG level
 
 ### Metrics
 
@@ -458,11 +493,14 @@ MIT License
 - No users match the role/area filters
 - Employee Service API returned empty result
 - Tenant ID mismatch
+- Pagination issue (unlikely, as pagination is automatic)
 
 **Solutions**:
 - Verify role_ids and area_ids are correct
+- If both are `None`, should return ALL users for tenant
 - Check Employee Service logs
 - Verify tenant_id matches Employee Service tenant
+- Enable DEBUG logging to see pagination details
 
 #### Form Service API Errors
 **Symptom**: `form_service_error` in processing results.
@@ -472,6 +510,7 @@ MIT License
 - Form Service unavailable
 - Invalid dispatch_id
 - Rate limiting
+- Network connectivity issues (if in VPC)
 
 **Solutions**:
 - Verify Cognito credentials are correct
@@ -479,6 +518,8 @@ MIT License
 - Check Form Service health
 - Verify dispatch exists in Form Service
 - Check rate limits
+- If in VPC, verify security group allows outbound HTTPS
+- Check VPC endpoints and NAT Gateway configuration
 
 #### SQS Messages Not Processing
 **Symptom**: Messages remain in SQS queue.
@@ -525,10 +566,20 @@ Check CloudWatch logs for:
 
 ```
 1. SQS message received with dispatch_id
-2. Employee Service returns 500 user IDs
-3. Split into 5 batches (500 / 100 = 5)
-4. Form Service creates assignments in 5 API calls
-5. Processing completes in ~30 seconds
+2. Employee Service returns 500 user IDs (with pagination if needed)
+3. Single batch created (500 < 1000 max batch size)
+4. Form Service creates assignments in 1 API call
+5. Processing completes in ~5-10 seconds
+```
+
+### Scenario 2b: Very Large Dispatch (2000 users)
+
+```
+1. SQS message received with dispatch_id
+2. Employee Service returns 2000 user IDs (with pagination)
+3. Split into 2 batches (2000 / 1000 = 2)
+4. Form Service creates assignments in 2 API calls
+5. Processing completes in ~15-20 seconds
 ```
 
 ### Scenario 3: No Users Found
@@ -595,8 +646,8 @@ Check CloudWatch logs for:
 ┌─────────────────────────────────────────────────────────────┐
 │              External Services                              │
 │                                                            │
-│  Employee Service: GET /api/v1/employees/users            │
-│  Form Service: POST /internal/assignments                  │
+│  Employee Service: GET /employees/ (with pagination)      │
+│  Form Service: POST /assignments (optimized batches)      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -627,15 +678,17 @@ Check CloudWatch logs for:
        ↓
 ┌──────────────────────┐
 │ Employee Service     │
-│ GET /users           │
-│ → Returns user_ids   │
+│ GET /employees/      │
+│ → Paginates all users│
+│ → Returns all user_ids│
 └──────┬───────────────┘
        │
        ↓
 ┌──────────────────────┐
 │ Batch Processing     │
-│ Split users          │
-│ → Batches of 100     │
+│ Optimize batches     │
+│ → Up to 1000 per call│
+│ → Single call if ≤1000│
 └──────┬───────────────┘
        │
        ↓
@@ -643,6 +696,7 @@ Check CloudWatch logs for:
 │ Form Service         │
 │ POST /assignments    │
 │ → Creates assignments│
+│ → Handles duplicates │
 └──────┬───────────────┘
        │
        ↓
@@ -662,20 +716,30 @@ Check CloudWatch logs for:
 - **Timeout**: 15 minutes (maximum)
 - **Concurrency**: Unlimited (SQS manages concurrency)
 
-### Batch Size Optimization
+### Performance Optimizations
 
-**Factors to Consider**:
-- Lambda timeout limit (15 minutes)
-- Form Service API rate limits
-- Average processing time per user (~50ms)
-- Network latency
+**HTTP Connection Pooling**:
+- Uses `requests.Session` with connection pooling
+- Reuses TCP connections between requests
+- Reduces connection overhead, especially in pagination
+- Configured with `pool_connections=1` and `pool_maxsize=10`
 
-**Calculation**:
-```
-Max users per batch = (Lambda timeout - overhead) / time_per_user
-Example: (900s - 60s) / 0.05s = 16,800 users
-But use 100-500 for safety margin
-```
+**Batch Size Optimization**:
+- **Maximum**: 1000 users per batch (optimal for most cases)
+- **Single Call**: If users ≤ 1000, makes single API call (most efficient)
+- **Multiple Batches**: Only splits if users > 1000
+- **Factors**: Lambda timeout, API rate limits, payload size
+
+**Pagination**:
+- Automatically paginates through all Employee Service results
+- No manual pagination needed
+- Handles both new format (`employees` key) and legacy format (`items` key)
+
+**Duplicate Handling**:
+- Form Service endpoint uses `on_conflict_do_nothing`
+- Duplicate assignments (same dispatch_id + user_id) are automatically ignored
+- No errors thrown for duplicates
+- Returns all assignments (new and existing)
 
 ### Monitoring Metrics
 

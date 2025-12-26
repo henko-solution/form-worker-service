@@ -62,7 +62,7 @@ class Settings(BaseSettings):
         if os.environ.get("AWS_REGION"):
             self.aws_region = os.environ["AWS_REGION"]
         # Normalize empty string to None for client_secret
-        if self.cognito_client_secret == "":
+        if self.cognito_client_secret == "":  # nosec B105
             self.cognito_client_secret = None
 
     # Internal API Authentication (deprecated - use Cognito instead)

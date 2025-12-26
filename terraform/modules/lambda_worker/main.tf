@@ -25,8 +25,14 @@ resource "aws_lambda_function" "main" {
     mode = "Active"
   }
 
-  # Note: No VPC configuration needed - worker doesn't access database
-  # Note: No Dead Letter Queue configured here - SQS handles DLQ
+  # VPC Configuration for accessing services in private subnets
+  dynamic "vpc_config" {
+    for_each = var.vpc_id != "" && length(var.subnet_ids) > 0 ? [1] : []
+    content {
+      subnet_ids         = var.subnet_ids
+      security_group_ids = [aws_security_group.lambda[0].id]
+    }
+  }
 
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-lambda-${var.environment}"
@@ -69,6 +75,43 @@ resource "aws_iam_role" "lambda_execution" {
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Attach VPC execution policy (required if Lambda is in VPC)
+resource "aws_iam_role_policy_attachment" "lambda_vpc" {
+  count      = var.vpc_id != "" ? 1 : 0
+  role       = aws_iam_role.lambda_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# Security Group for Lambda
+resource "aws_security_group" "lambda" {
+  count       = var.vpc_id != "" ? 1 : 0
+  name_prefix = "${var.project_name}-lambda-${var.environment}-"
+  vpc_id      = var.vpc_id
+  description = "Security group for ${var.project_name} Lambda function"
+
+  # Allow outbound HTTPS for external services (Employee Service, Form Service)
+  egress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow HTTPS outbound to external services"
+  }
+
+  # Allow outbound HTTP for AWS services (if needed)
+  egress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow HTTP outbound to AWS services"
+  }
+
+  tags = merge(var.common_tags, {
+    Name = "${var.project_name}-lambda-sg-${var.environment}"
+  })
 }
 
 # IAM Policy for Lambda to access SQS

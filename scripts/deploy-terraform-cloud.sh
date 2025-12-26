@@ -103,6 +103,9 @@ export TF_VAR_aws_region=$(gh variable list --repo henko-solution/form-worker-se
 export TF_VAR_form_service_url=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="FORM_SERVICE_URL") | .value' 2>/dev/null || echo "")
 export TF_VAR_employee_service_url=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="EMPLOYEE_SERVICE_URL") | .value' 2>/dev/null || echo "")
 
+# VPC Configuration
+export TF_VAR_vpc_id=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="VPC_ID") | .value' 2>/dev/null || echo "")
+
 # Cognito Configuration
 export TF_VAR_cognito_user_pool_id=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_USER_POOL_ID") | .value' 2>/dev/null || echo "")
 export TF_VAR_cognito_client_id=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_CLIENT_ID") | .value' 2>/dev/null || echo "")
@@ -157,6 +160,7 @@ log_info "📋 Variables obtenidas desde GitHub:"
 log_info "  AWS_REGION: $TF_VAR_aws_region"
 log_info "  FORM_SERVICE_URL: $TF_VAR_form_service_url"
 log_info "  EMPLOYEE_SERVICE_URL: $TF_VAR_employee_service_url"
+log_info "  VPC_ID: $TF_VAR_vpc_id"
 log_info "  COGNITO_USER_POOL_ID: $TF_VAR_cognito_user_pool_id"
 log_info "  COGNITO_CLIENT_ID: $TF_VAR_cognito_client_id"
 log_info "  COGNITO_CLIENT_SECRET: [SET]"
@@ -169,6 +173,7 @@ log_info "  LOG_LEVEL: $TF_VAR_log_level"
 log_info "  LOG_RETENTION_DAYS: $TF_VAR_log_retention_days"
 log_info "  SQS_BATCH_SIZE: $TF_VAR_sqs_batch_size"
 log_info "  SQS_MAXIMUM_BATCHING_WINDOW: $TF_VAR_sqs_maximum_batching_window"
+log_info "  VPC_ID: $TF_VAR_vpc_id"
 
 log_success "Variables configuradas para $ENVIRONMENT"
 
@@ -346,6 +351,7 @@ PLAN_ARGS=(
     "-var=log_retention_days=$TF_VAR_log_retention_days"
     "-var=sqs_batch_size=$TF_VAR_sqs_batch_size"
     "-var=sqs_maximum_batching_window=$TF_VAR_sqs_maximum_batching_window"
+    "-var=vpc_id=${TF_VAR_vpc_id:-}"
     "-var=lambda_filename=lambda-code.zip"
 )
 

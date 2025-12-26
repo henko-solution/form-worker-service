@@ -1,15 +1,11 @@
 """
 Employee Service client for retrieving users by role and area.
-
-This service consumes the external Employee Service API to get user IDs
-based on role and area filters.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import urljoin
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -31,46 +27,43 @@ class EmployeeService:
         timeout: float = 30.0,
         auth_service: CognitoAuthService | None = None,
     ) -> None:
-        """Initialize Employee Service client.
-
-        Args:
-            base_url: Base URL for Employee Service API. If None, uses
-                employee_service_url from settings.
-            timeout: Request timeout in seconds
-            auth_service: Cognito authentication service instance
-        """
+        """Initialize Employee Service client with optimized session."""
         settings = get_settings()
-        self.base_url = base_url or settings.employee_service_url
+        self.base_url = (
+            (base_url or settings.employee_service_url or "").strip().rstrip("/")
+        )
         self.timeout = timeout
         self.auth_service = auth_service or CognitoAuthService()
-        # Create a session with retry strategy
-        self._session: requests.Session | None = None
 
-    @property
-    def session(self) -> requests.Session:
-        """Get or create HTTP session."""
-        if self._session is None:
-            self._session = requests.Session()
-            # Configure retry strategy
-            retry_strategy = Retry(
-                total=3,
-                backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            self._session.mount("http://", adapter)
-            self._session.mount("https://", adapter)
-        return self._session
+        # Create session with connection pooling
+        self.session = requests.Session()
+
+        # Configure HTTP adapter with connection pooling
+        # pool_connections: number of connection pools to cache
+        # pool_maxsize: maximum number of connections to save in the pool
+        adapter = HTTPAdapter(
+            pool_connections=1,  # Single connection pool for this service
+            pool_maxsize=10,  # Allow up to 10 connections in the pool
+            max_retries=Retry(
+                # Disable automatic retries (we handle retries at higher level)
+                total=0,
+                backoff_factor=0,
+            ),
+        )
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+
+        # Set default headers for all requests
+        self.session.headers.update(
+            {
+                "accept": "application/json",
+            }
+        )
 
     def close(self) -> None:
         """Close HTTP session."""
-        if self._session is not None:
-            try:
-                self._session.close()
-            except Exception as e:
-                logger.warning(f"Error closing HTTP session: {str(e)}")
-            finally:
-                self._session = None
+        if self.session:
+            self.session.close()
 
     def get_users_by_role_and_area(
         self,
@@ -78,119 +71,127 @@ class EmployeeService:
         role_ids: list[str] | None = None,
         area_ids: list[str] | None = None,
     ) -> list[str]:
-        """Get user IDs from Employee Service filtered by role and/or area.
-
-        Args:
-            tenant_id: Tenant ID for filtering (sent as X-Tenant-ID header)
-            role_ids: Optional list of role UUIDs to filter by (mapped to positions_in)
-            area_ids: Optional list of area UUIDs to filter by (mapped to departments_in)
-
-        Returns:
-            List of user IDs (UUIDs as strings)
-
-        Raises:
-            EmployeeServiceError: If API call fails or returns invalid response
+        """
+        Get user IDs from Employee Service filtered by role and/or area.
+        Implements pagination to retrieve all users.
         """
         try:
-            # Build query parameters
-            # Note: role_ids maps to positions_in, area_ids maps to departments_in
-            params: dict[str, Any] = {"skip": 0, "limit": 100}
+            # Base params
+            base_params: dict[str, Any] = {"skip": 0, "limit": 100}
             if role_ids:
-                params["positions_in"] = role_ids
+                base_params["positions_in"] = role_ids
             if area_ids:
-                params["departments_in"] = area_ids
+                base_params["departments_in"] = area_ids
 
-            # Get authentication token
-            access_token = self.auth_service.get_access_token()
-
-            # Prepare headers
-            # X-Tenant-ID is sent as header, not query parameter
+            # Headers that change per request (override session defaults)
             headers = {
                 "X-Tenant-ID": tenant_id,
-                "Authorization": f"Bearer {access_token}",
-                "accept": "application/json",
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
             }
 
-            # Build full URL using urljoin to ensure proper URL construction
-            # Endpoint: GET /employees/
-            url = urljoin(self.base_url, "/employees/")
+            url = f"{self.base_url}/employees/"
+            all_user_ids: list[str] = []
+            skip = 0
+            limit = 100
+            total_pages = None
+            page = 1
 
-            logger.debug(f"Employee Service URL: {url}")
-            logger.debug(f"Base URL: {self.base_url}")
+            # Paginate through all pages
+            while True:
+                params = base_params.copy()
+                params["skip"] = skip
+                params["limit"] = limit
 
-            # Make API call
-            # Expected endpoint:
-            # GET /employees/?skip=0&limit=100&positions_in=...&departments_in=...
-            response = self.session.get(
-                url,
-                params=params,
-                headers=headers,
-                timeout=self.timeout,
-            )
-
-            response.raise_for_status()
-
-            # Parse response
-            data = response.json()
-
-            # Expected response format from /employees/ endpoint:
-            # {
-            #   "items": [
-            #     {"id": "uuid1", ...},
-            #     {"id": "uuid2", ...}
-            #   ],
-            #   "total": 100,
-            #   "skip": 0,
-            #   "limit": 100
-            # }
-            # Or direct list:
-            # [{"id": "uuid1", ...}, {"id": "uuid2", ...}]
-
-            if isinstance(data, list):
-                # Direct list of user objects
-                return [str(user.get("id", "")) for user in data if user.get("id")]
-            elif isinstance(data, dict):
-                # Object with items array (pagination format)
-                items = data.get("items", [])
-                if items and isinstance(items[0], dict):
-                    # List of user objects with id field
-                    return [str(user.get("id", "")) for user in items if user.get("id")]
-                else:
-                    # List of user IDs
-                    return [str(user_id) for user_id in items]
-            else:
-                logger.warning(
-                    f"Unexpected response format from Employee Service: {type(data)}"
+                response = self.session.get(
+                    url, params=params, headers=headers, timeout=self.timeout
                 )
-                return []
+
+                response.raise_for_status()
+                data = response.json()
+
+                # Handle response format
+                employees = []
+                if isinstance(data, list):
+                    # Direct list format (legacy)
+                    employees = data
+                    page_user_ids = [
+                        str(user.get("id", ""))
+                        for user in employees
+                        if user.get("id")
+                    ]
+                    all_user_ids.extend(page_user_ids)
+                    break  # No pagination for list format
+
+                elif isinstance(data, dict):
+                    # Check for 'employees' key (current format)
+                    if "employees" in data:
+                        employees = data["employees"]
+                        total_pages = data.get("total_pages", 1)
+                        current_page = data.get("page", page)
+
+                        # Extract user IDs from employees
+                        page_user_ids = [
+                            str(emp.get("id", ""))
+                            for emp in employees
+                            if emp.get("id")
+                        ]
+                        all_user_ids.extend(page_user_ids)
+
+                        # Check if we need to fetch more pages
+                        if current_page >= total_pages:
+                            break
+
+                        # Prepare for next page
+                        skip += limit
+                        page += 1
+
+                    # Legacy support: check for 'items' key
+                    elif "items" in data:
+                        items = data["items"]
+                        if items and isinstance(items[0], dict):
+                            page_user_ids = [
+                                str(user.get("id", ""))
+                                for user in items
+                                if user.get("id")
+                            ]
+                            all_user_ids.extend(page_user_ids)
+                        elif items:
+                            page_user_ids = [str(uid) for uid in items]
+                            all_user_ids.extend(page_user_ids)
+                        else:
+                            logger.warning(
+                                "Response has 'items' key but it's empty or None"
+                            )
+                        # Legacy format doesn't support pagination, break
+                        break
+                    else:
+                        logger.warning(
+                            "Unexpected response format: %s", type(data).__name__
+                        )
+                        break
+                else:
+                    logger.warning(
+                        "Unexpected response format: %s", type(data).__name__
+                    )
+                    break
+            return all_user_ids
 
         except requests.HTTPError as e:
-            logger.error(
-                f"Employee Service API error: "
-                f"{e.response.status_code if e.response else 'Unknown'} - "
-                f"{e.response.text if e.response else str(e)}"
-            )
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error("Employee Service API error: %s", status)
             raise EmployeeServiceError(
-                f"Employee Service API returned "
-                f"{e.response.status_code if e.response else 'unknown status'}: {str(e)}",
+                f"Employee Service API returned {status}",
                 "employee_service_api_error",
             )
         except requests.RequestException as e:
-            logger.error(f"Employee Service request error: {str(e)}")
+            logger.error("Employee Service request error: %s", e)
             raise EmployeeServiceError(
-                f"Failed to connect to Employee Service: {str(e)}",
+                f"Failed to connect to Employee Service: {e}",
                 "employee_service_connection_error",
             )
-        except (ValueError, TypeError, KeyError) as e:
-            # Response parsing errors
-            logger.error(f"Employee Service response parsing error: {str(e)}")
+        except Exception as e:
+            logger.error("Employee Service error: %s", e)
             raise EmployeeServiceError(
-                f"Failed to parse Employee Service response: {str(e)}",
-                "employee_service_parse_error",
-            )
-        except requests.Timeout as e:
-            logger.error(f"Employee Service timeout: {str(e)}")
-            raise EmployeeServiceError(
-                f"Employee Service request timed out: {str(e)}",
-                "employee_service_timeout",
+                f"Employee Service error: {e}",
+                "employee_service_error",
             )

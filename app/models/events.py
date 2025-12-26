@@ -46,11 +46,17 @@ class DispatchEvent(BaseModel):
     )
     role_ids: list[UUID] | None = Field(
         default=None,
-        description="List of role IDs to filter users. If None or empty, all users are included.",
+        description=(
+            "List of role IDs to filter users. "
+            "If None or empty, all users are included."
+        ),
     )
     area_ids: list[UUID] | None = Field(
         default=None,
-        description="List of area IDs to filter users. If None or empty, all users are included.",
+        description=(
+            "List of area IDs to filter users. "
+            "If None or empty, all users are included."
+        ),
     )
     expires_at: datetime | None = Field(
         None,
@@ -62,9 +68,9 @@ class DispatchEvent(BaseModel):
     )
     created_by: str = Field(..., description="User ID who created the dispatch")
 
-    @field_validator("role_ids", "area_ids", mode="before")
+    @field_validator("role_ids", "area_ids", mode="before")  # type: ignore[untyped-decorator]  # noqa: E501
     @classmethod
-    def normalize_lists(cls, v: Any) -> list[UUID] | None:
+    def normalize_lists(cls, v: Any) -> Any:
         """
         Normalize None or empty lists to None.
         Empty lists or None values mean "all users" (no filtering).
@@ -73,7 +79,8 @@ class DispatchEvent(BaseModel):
             v: Value to normalize (can be None, empty list, or list of UUIDs/strings)
 
         Returns:
-            None if value is None or empty list, otherwise the list (will be converted to UUIDs)
+            None if value is None or empty list,
+            otherwise the list (will be converted to UUIDs)
         """
         if v is None:
             return None
@@ -86,7 +93,7 @@ class DispatchEvent(BaseModel):
         # If it's not None and not a list, let Pydantic handle the error
         return v
 
-    @field_validator("tenant_id")
+    @field_validator("tenant_id")  # type: ignore[untyped-decorator]
     @classmethod
     def validate_tenant_id(cls, v: str) -> str:
         """
