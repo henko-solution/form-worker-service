@@ -58,6 +58,13 @@ class DispatchEvent(BaseModel):
             "If None or empty, all users are included."
         ),
     )
+    user_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "List of user IDs to create assignments for. "
+            "If provided, skips Employee Service query and uses these IDs directly."
+        ),
+    )
     expires_at: datetime | None = Field(
         None,
         description="Optional expiration date for assignments",
@@ -90,6 +97,30 @@ class DispatchEvent(BaseModel):
                 return None
             # Non-empty list will be validated and converted to UUIDs by Pydantic
             return v
+        # If it's not None and not a list, let Pydantic handle the error
+        return v
+
+    @field_validator("user_ids", mode="before")  # type: ignore[untyped-decorator]
+    @classmethod
+    def normalize_user_ids(cls, v: Any) -> Any:
+        """
+        Normalize user_ids: convert UUIDs to strings, handle None/empty lists.
+
+        Args:
+            v: Value to normalize (can be None, empty list, or list of UUIDs/strings)
+
+        Returns:
+            None if value is None or empty list,
+            otherwise list of strings (UUIDs converted to strings)
+        """
+        if v is None:
+            return None
+        if isinstance(v, list):
+            # Convert empty list to None
+            if len(v) == 0:
+                return None
+            # Convert UUIDs to strings, keep strings as-is
+            return [str(uid) for uid in v]
         # If it's not None and not a list, let Pydantic handle the error
         return v
 
@@ -161,6 +192,19 @@ class DispatchEvent(BaseModel):
                         "tenant_id": "henko-main",
                         "role_ids": None,
                         "area_ids": None,
+                        "created_at": "2025-12-22T16:30:00Z",
+                        "created_by": "990e8400-e29b-41d4-a716-446655440004",
+                    },
+                },
+                {
+                    "description": "With user_ids (skip Employee Service query)",
+                    "value": {
+                        "dispatch_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "tenant_id": "henko-main",
+                        "user_ids": [
+                            "550e8400-e29b-41d4-a716-446655440001",
+                            "550e8400-e29b-41d4-a716-446655440002",
+                        ],
                         "created_at": "2025-12-22T16:30:00Z",
                         "created_by": "990e8400-e29b-41d4-a716-446655440004",
                     },

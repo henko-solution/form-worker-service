@@ -58,25 +58,34 @@ class DispatchProcessor:
         )
 
         try:
-            # Get user IDs
-            role_ids_str = (
-                [str(rid) for rid in event.role_ids] if event.role_ids else None
-            )
-            area_ids_str = (
-                [str(aid) for aid in event.area_ids] if event.area_ids else None
-            )
+            # Use user_ids directly if provided, otherwise query Employee Service
+            if event.user_ids:
+                user_ids = event.user_ids
+                logger.info(
+                    "Using %d user_id(s) from message for dispatch %s",
+                    len(user_ids),
+                    event.dispatch_id,
+                )
+            else:
+                # Get user IDs from Employee Service
+                role_ids_str = (
+                    [str(rid) for rid in event.role_ids] if event.role_ids else None
+                )
+                area_ids_str = (
+                    [str(aid) for aid in event.area_ids] if event.area_ids else None
+                )
 
-            user_ids = self.employee_service.get_users_by_role_and_area(
-                tenant_id=event.tenant_id,
-                role_ids=role_ids_str,
-                area_ids=area_ids_str,
-            )
+                user_ids = self.employee_service.get_users_by_role_and_area(
+                    tenant_id=event.tenant_id,
+                    role_ids=role_ids_str,
+                    area_ids=area_ids_str,
+                )
 
-            logger.info(
-                "Found %d user(s) for dispatch %s",
-                len(user_ids),
-                event.dispatch_id,
-            )
+                logger.info(
+                    "Found %d user(s) from Employee Service for dispatch %s",
+                    len(user_ids),
+                    event.dispatch_id,
+                )
 
             if not user_ids:
                 logger.warning(
