@@ -128,13 +128,6 @@ export TF_VAR_log_level=$(gh variable list --repo henko-solution/form-worker-ser
 export TF_VAR_log_retention_days=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="LOG_RETENTION_DAYS") | .value' 2>/dev/null || echo "30")
 export TF_VAR_sqs_batch_size=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="SQS_BATCH_SIZE") | .value' 2>/dev/null || echo "10")
 export TF_VAR_sqs_maximum_batching_window=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="SQS_MAXIMUM_BATCHING_WINDOW") | .value' 2>/dev/null || echo "5")
-# Lambda warming: siempre true (reduce cold starts)
-export TF_VAR_enable_lambda_warming="true"
-# EventBridge requiere ScheduleExpression no vacío
-TF_VAR_lambda_warming_schedule_rate=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="LAMBDA_WARMING_SCHEDULE_RATE") | .value' 2>/dev/null || echo "cron(0/5 8-18 ? * MON-FRI *)")
-[[ -z "$TF_VAR_lambda_warming_schedule_rate" ]] && TF_VAR_lambda_warming_schedule_rate="cron(0/5 8-18 ? * MON-FRI *)"
-export TF_VAR_lambda_warming_schedule_rate
-
 # Verificar variables requeridas
 if [[ -z "$TF_VAR_form_service_url" ]]; then
     log_error "FORM_SERVICE_URL es requerido. Configúralo en GitHub Variables"
@@ -335,8 +328,6 @@ PLAN_ARGS=(
     "-var=log_retention_days=$TF_VAR_log_retention_days"
     "-var=sqs_batch_size=$TF_VAR_sqs_batch_size"
     "-var=sqs_maximum_batching_window=$TF_VAR_sqs_maximum_batching_window"
-    "-var=enable_lambda_warming=true"
-    "-var=lambda_warming_schedule_rate=${TF_VAR_lambda_warming_schedule_rate:-cron(0/5 8-18 ? * MON-FRI *)}"
     "-var=lambda_filename=lambda-code.zip"
 )
 

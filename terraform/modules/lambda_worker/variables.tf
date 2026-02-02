@@ -37,18 +37,6 @@ variable "lambda_runtime" {
   default     = "python3.14"
 }
 
-variable "enable_warming" {
-  description = "Enable EventBridge scheduled invocations to keep Lambda warm and reduce cold starts"
-  type        = bool
-  default     = true
-}
-
-variable "warming_schedule_rate" {
-  description = "EventBridge schedule for Lambda warming. Default: every 5 min during 8am-6pm UTC Mon-Fri"
-  type        = string
-  default     = "cron(0/5 8-18 ? * MON-FRI *)"
-}
-
 variable "lambda_timeout" {
   description = "Lambda function timeout in seconds"
   type        = number

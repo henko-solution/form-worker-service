@@ -153,10 +153,6 @@ module "lambda_worker" {
   create_layer   = true
   layer_filename = "lambda-layer.zip"
 
-  # Lambda warming (EventBridge) - default cron if empty (EventBridge requires non-empty schedule)
-  enable_warming        = var.enable_lambda_warming
-  warming_schedule_rate = var.lambda_warming_schedule_rate != "" ? var.lambda_warming_schedule_rate : "cron(0/5 8-18 ? * MON-FRI *)"
-
   common_tags = local.common_tags
 }
 

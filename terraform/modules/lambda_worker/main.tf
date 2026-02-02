@@ -141,32 +141,3 @@ resource "aws_lambda_permission" "allow_sqs" {
   principal     = "sqs.amazonaws.com"
   source_arn    = var.sqs_queue_arn
 }
-
-# Lambda warming: EventBridge invokes Lambda with empty SQS payload to reduce cold starts
-resource "aws_cloudwatch_event_rule" "lambda_warming" {
-  count               = var.enable_warming ? 1 : 0
-  name                = "${var.project_name}-warming-${var.environment}"
-  description         = "Keeps Lambda warm during business hours to reduce cold starts"
-  schedule_expression = var.warming_schedule_rate != "" ? var.warming_schedule_rate : "rate(5 minutes)"
-}
-
-resource "aws_cloudwatch_event_target" "lambda_warming" {
-  count     = var.enable_warming ? 1 : 0
-  rule      = aws_cloudwatch_event_rule.lambda_warming[0].name
-  target_id = "WarmLambda"
-  arn       = aws_lambda_function.main.arn
-
-  # Empty SQS-style payload: handler returns early with "No records to process"
-  input = jsonencode({
-    Records = []
-  })
-}
-
-resource "aws_lambda_permission" "eventbridge_warming" {
-  count         = var.enable_warming ? 1 : 0
-  statement_id  = "AllowEventBridgeWarm"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.main.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.lambda_warming[0].arn
-}

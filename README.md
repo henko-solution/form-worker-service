@@ -522,18 +522,19 @@ MIT License
 - Verify Lambda has internet access (no VPC; public endpoints via HTTPS)
 
 #### SQS Messages Not Processing
-**Symptom**: Messages remain in SQS queue.
+**Symptom**: Messages remain in SQS queue or Lambda never runs.
 
 **Possible Causes**:
-- Lambda function not triggered
-- Lambda execution errors
-- SQS trigger misconfigured
+- Form-service sends to a different queue URL (wrong env or old name)
+- Lambda event source mapping disabled or pointing to wrong queue
+- Message body validation fails (e.g. schema change in form-service)
 
 **Solutions**:
-- Check Lambda function logs in CloudWatch
-- Verify SQS trigger configuration
-- Check Lambda IAM permissions
-- Verify queue URL is correct
+- **Queue URL**: In form-service, `SQS_DISPATCH_EVENTS_QUEUE_URL` must be the URL of this worker's queue. Queue name pattern: `form-worker-service-{env}-dispatch-events` (e.g. `form-worker-service-qa-dispatch-events` for QA). Get the URL from Terraform output `sqs_queue_url` or AWS Console.
+- **Event source mapping**: In AWS Lambda → this function → Configuration → Triggers, confirm SQS trigger is enabled and linked to the same queue.
+- **Message format**: This worker expects the same JSON as form-service `DispatchCreatedEvent` (dispatch_id, tenant_id, form_id, role_ids, area_ids, user_ids, expires_at, created_at, created_by optional). If form-service changed the payload, validation may fail; check CloudWatch logs for validation errors.
+- Check Lambda function logs in CloudWatch for invocation and parsing errors
+- Verify Lambda IAM permissions (SQS ReceiveMessage, DeleteMessage, etc.)
 
 ### Debugging
 

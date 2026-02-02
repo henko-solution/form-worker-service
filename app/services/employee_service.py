@@ -165,7 +165,20 @@ class EmployeeService:
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "Unknown"
-            logger.error("Employee Service API error: %s", status)
+            body_preview = ""
+            if e.response is not None:
+                try:
+                    body_preview = (e.response.text or "")[:500]
+                except Exception:
+                    body_preview = "(unable to read body)"
+                logger.error(
+                    "Employee Service API error: status=%s url=%s body_preview=%s",
+                    status,
+                    e.response.url if e.response else "",
+                    body_preview,
+                )
+            else:
+                logger.error("Employee Service API error: %s", status)
             raise EmployeeServiceError(
                 f"Employee Service API returned {status}",
                 "employee_service_api_error",

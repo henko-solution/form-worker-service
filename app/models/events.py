@@ -73,7 +73,10 @@ class DispatchEvent(BaseModel):
         ...,
         description="Timestamp when the dispatch was created",
     )
-    created_by: str = Field(..., description="User ID who created the dispatch")
+    created_by: str | None = Field(
+        None,
+        description="User ID who created the dispatch (form-service may send null)",
+    )
 
     @field_validator("role_ids", "area_ids", mode="before")
     @classmethod
