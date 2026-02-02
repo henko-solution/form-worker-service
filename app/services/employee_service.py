@@ -2,8 +2,6 @@
 Employee Service client for retrieving users by role and area.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 
@@ -76,8 +74,9 @@ class EmployeeService:
         Implements pagination to retrieve all users.
         """
         try:
-            # Base params
-            base_params: dict[str, Any] = {"skip": 0, "limit": 100}
+            # Employee Service uses page (1-indexed) and page_size for pagination
+            page_size = 100
+            base_params: dict[str, Any] = {"page": 1, "page_size": page_size}
             if role_ids:
                 base_params["positions_in"] = role_ids
             if area_ids:
@@ -91,16 +90,13 @@ class EmployeeService:
 
             url = f"{self.base_url}/employees/"
             all_user_ids: list[str] = []
-            skip = 0
-            limit = 100
-            total_pages = None
             page = 1
 
-            # Paginate through all pages
+            # Paginate through all pages (Employee Service: page 1-indexed, page_size)
             while True:
                 params = base_params.copy()
-                params["skip"] = skip
-                params["limit"] = limit
+                params["page"] = page
+                params["page_size"] = page_size
 
                 response = self.session.get(
                     url, params=params, headers=headers, timeout=self.timeout
@@ -110,43 +106,36 @@ class EmployeeService:
                 data = response.json()
 
                 # Handle response format
-                employees = []
+                employees: list[Any] = []
                 if isinstance(data, list):
                     # Direct list format (legacy)
                     employees = data
                     page_user_ids = [
-                        str(user.get("id", ""))
-                        for user in employees
-                        if user.get("id")
+                        str(user.get("id", "")) for user in employees if user.get("id")
                     ]
                     all_user_ids.extend(page_user_ids)
                     break  # No pagination for list format
 
-                elif isinstance(data, dict):
-                    # Check for 'employees' key (current format)
+                if isinstance(data, dict):
+                    # Current format: employees, page, page_size, total_pages
                     if "employees" in data:
                         employees = data["employees"]
                         total_pages = data.get("total_pages", 1)
                         current_page = data.get("page", page)
 
-                        # Extract user IDs from employees
                         page_user_ids = [
-                            str(emp.get("id", ""))
-                            for emp in employees
-                            if emp.get("id")
+                            str(emp.get("id", "")) for emp in employees if emp.get("id")
                         ]
                         all_user_ids.extend(page_user_ids)
 
-                        # Check if we need to fetch more pages
                         if current_page >= total_pages:
                             break
 
-                        # Prepare for next page
-                        skip += limit
                         page += 1
+                        continue
 
-                    # Legacy support: check for 'items' key
-                    elif "items" in data:
+                    # Legacy support: 'items' key (no pagination)
+                    if "items" in data:
                         items = data["items"]
                         if items and isinstance(items[0], dict):
                             page_user_ids = [
@@ -162,18 +151,16 @@ class EmployeeService:
                             logger.warning(
                                 "Response has 'items' key but it's empty or None"
                             )
-                        # Legacy format doesn't support pagination, break
                         break
-                    else:
-                        logger.warning(
-                            "Unexpected response format: %s", type(data).__name__
-                        )
-                        break
-                else:
+
                     logger.warning(
                         "Unexpected response format: %s", type(data).__name__
                     )
                     break
+
+                logger.warning("Unexpected response format: %s", type(data).__name__)
+                break
+
             return all_user_ids
 
         except requests.HTTPError as e:

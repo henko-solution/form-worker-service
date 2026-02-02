@@ -75,7 +75,7 @@ class DispatchEvent(BaseModel):
     )
     created_by: str = Field(..., description="User ID who created the dispatch")
 
-    @field_validator("role_ids", "area_ids", mode="before")  # type: ignore[untyped-decorator]  # noqa: E501
+    @field_validator("role_ids", "area_ids", mode="before")
     @classmethod
     def normalize_lists(cls, v: Any) -> Any:
         """
@@ -100,7 +100,7 @@ class DispatchEvent(BaseModel):
         # If it's not None and not a list, let Pydantic handle the error
         return v
 
-    @field_validator("user_ids", mode="before")  # type: ignore[untyped-decorator]
+    @field_validator("user_ids", mode="before")
     @classmethod
     def normalize_user_ids(cls, v: Any) -> Any:
         """
@@ -124,7 +124,7 @@ class DispatchEvent(BaseModel):
         # If it's not None and not a list, let Pydantic handle the error
         return v
 
-    @field_validator("tenant_id")  # type: ignore[untyped-decorator]
+    @field_validator("tenant_id")
     @classmethod
     def validate_tenant_id(cls, v: str) -> str:
         """

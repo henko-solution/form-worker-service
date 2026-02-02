@@ -25,15 +25,6 @@ resource "aws_lambda_function" "main" {
     mode = "Active"
   }
 
-  # VPC Configuration for accessing services in private subnets
-  dynamic "vpc_config" {
-    for_each = var.vpc_id != "" && length(var.subnet_ids) > 0 ? [1] : []
-    content {
-      subnet_ids         = var.subnet_ids
-      security_group_ids = [aws_security_group.lambda[0].id]
-    }
-  }
-
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-lambda-${var.environment}"
   })
@@ -71,47 +62,10 @@ resource "aws_iam_role" "lambda_execution" {
   tags = var.common_tags
 }
 
-# Attach basic Lambda execution policy
+# Attach basic Lambda execution policy (internet access by default when not in VPC)
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-# Attach VPC execution policy (required if Lambda is in VPC)
-resource "aws_iam_role_policy_attachment" "lambda_vpc" {
-  count      = var.vpc_id != "" ? 1 : 0
-  role       = aws_iam_role.lambda_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
-}
-
-# Security Group for Lambda
-resource "aws_security_group" "lambda" {
-  count       = var.vpc_id != "" ? 1 : 0
-  name_prefix = "${var.project_name}-lambda-${var.environment}-"
-  vpc_id      = var.vpc_id
-  description = "Security group for ${var.project_name} Lambda function"
-
-  # Allow outbound HTTPS for external services (Employee Service, Form Service)
-  egress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Allow HTTPS outbound to external services"
-  }
-
-  # Allow outbound HTTP for AWS services (if needed)
-  egress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Allow HTTP outbound to AWS services"
-  }
-
-  tags = merge(var.common_tags, {
-    Name = "${var.project_name}-lambda-sg-${var.environment}"
-  })
 }
 
 # IAM Policy for Lambda to access SQS
@@ -186,4 +140,33 @@ resource "aws_lambda_permission" "allow_sqs" {
   function_name = aws_lambda_function.main.function_name
   principal     = "sqs.amazonaws.com"
   source_arn    = var.sqs_queue_arn
+}
+
+# Lambda warming: EventBridge invokes Lambda with empty SQS payload to reduce cold starts
+resource "aws_cloudwatch_event_rule" "lambda_warming" {
+  count               = var.enable_warming ? 1 : 0
+  name                = "${var.project_name}-warming-${var.environment}"
+  description         = "Keeps Lambda warm during business hours to reduce cold starts"
+  schedule_expression = var.warming_schedule_rate != "" ? var.warming_schedule_rate : "rate(5 minutes)"
+}
+
+resource "aws_cloudwatch_event_target" "lambda_warming" {
+  count     = var.enable_warming ? 1 : 0
+  rule      = aws_cloudwatch_event_rule.lambda_warming[0].name
+  target_id = "WarmLambda"
+  arn       = aws_lambda_function.main.arn
+
+  # Empty SQS-style payload: handler returns early with "No records to process"
+  input = jsonencode({
+    Records = []
+  })
+}
+
+resource "aws_lambda_permission" "eventbridge_warming" {
+  count         = var.enable_warming ? 1 : 0
+  statement_id  = "AllowEventBridgeWarm"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.main.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.lambda_warming[0].arn
 }

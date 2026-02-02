@@ -124,13 +124,12 @@ class DispatchProcessor:
 
             # Create assignments
             total_created = 0
-            expires_at_str = event.expires_at.isoformat() if event.expires_at else None
 
             for batch in batches:
                 request = CreateAssignmentRequest(
                     dispatch_id=str(event.dispatch_id),
                     user_ids=batch,
-                    expires_at=expires_at_str,
+                    expires_at=event.expires_at,
                 )
 
                 response = self.form_service_client.create_assignments(

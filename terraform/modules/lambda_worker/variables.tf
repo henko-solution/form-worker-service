@@ -34,7 +34,19 @@ variable "lambda_handler" {
 variable "lambda_runtime" {
   description = "Lambda runtime"
   type        = string
-  default     = "python3.13"
+  default     = "python3.14"
+}
+
+variable "enable_warming" {
+  description = "Enable EventBridge scheduled invocations to keep Lambda warm and reduce cold starts"
+  type        = bool
+  default     = true
+}
+
+variable "warming_schedule_rate" {
+  description = "EventBridge schedule for Lambda warming. Default: every 5 min during 8am-6pm UTC Mon-Fri"
+  type        = string
+  default     = "cron(0/5 8-18 ? * MON-FRI *)"
 }
 
 variable "lambda_timeout" {
@@ -96,17 +108,4 @@ variable "common_tags" {
   description = "Common tags for all resources"
   type        = map(string)
   default     = {}
-}
-
-# VPC Configuration
-variable "vpc_id" {
-  description = "VPC ID where Lambda will be deployed"
-  type        = string
-  default     = ""
-}
-
-variable "subnet_ids" {
-  description = "Subnet IDs for Lambda VPC configuration"
-  type        = list(string)
-  default     = []
 }

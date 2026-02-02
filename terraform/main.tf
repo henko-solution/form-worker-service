@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "6.30.0"
     }
   }
 
@@ -32,15 +32,6 @@ provider "aws" {
 # Data sources
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
-
-# VPC and Subnet data sources
-data "aws_subnets" "private" {
-  count = var.vpc_id != "" ? 1 : 0
-  filter {
-    name   = "vpc-id"
-    values = [var.vpc_id]
-  }
-}
 
 # Secrets Manager data source for Cognito password (optional - can use direct variable)
 data "aws_secretsmanager_secret" "cognito_system_password" {
@@ -162,9 +153,9 @@ module "lambda_worker" {
   create_layer   = true
   layer_filename = "lambda-layer.zip"
 
-  # VPC configuration
-  vpc_id     = var.vpc_id
-  subnet_ids = var.vpc_id != "" ? data.aws_subnets.private[0].ids : []
+  # Lambda warming (EventBridge) - default cron if empty (EventBridge requires non-empty schedule)
+  enable_warming        = var.enable_lambda_warming
+  warming_schedule_rate = var.lambda_warming_schedule_rate != "" ? var.lambda_warming_schedule_rate : "cron(0/5 8-18 ? * MON-FRI *)"
 
   common_tags = local.common_tags
 }

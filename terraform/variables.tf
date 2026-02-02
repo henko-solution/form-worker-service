@@ -29,7 +29,20 @@ variable "lambda_handler" {
 variable "lambda_runtime" {
   description = "Lambda runtime"
   type        = string
-  default     = "python3.13"
+  default     = "python3.14"
+}
+
+# Lambda warming (EventBridge) - reduce cold starts
+variable "enable_lambda_warming" {
+  description = "Enable EventBridge scheduled invocations to keep Lambda warm and reduce cold starts"
+  type        = bool
+  default     = true
+}
+
+variable "lambda_warming_schedule_rate" {
+  description = "EventBridge schedule for Lambda warming. Default: every 5 min during 8am-6pm UTC Mon-Fri"
+  type        = string
+  default     = "cron(0/5 8-18 ? * MON-FRI *)"
 }
 
 variable "lambda_timeout" {
@@ -163,11 +176,4 @@ variable "cloudwatch_kms_key_id" {
   description = "KMS key ID for CloudWatch log encryption"
   type        = string
   default     = null
-}
-
-# VPC Configuration
-variable "vpc_id" {
-  description = "VPC ID where Lambda will be deployed"
-  type        = string
-  default     = ""
 }

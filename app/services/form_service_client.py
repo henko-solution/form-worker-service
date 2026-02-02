@@ -2,8 +2,6 @@
 Form Service API client for creating assignments.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 

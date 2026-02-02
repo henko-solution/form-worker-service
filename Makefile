@@ -11,8 +11,10 @@
 .PHONY: help setup install quality lint format clean pre-commit-install pre-commit-run pre-commit-update
 
 # Variables
-PYTHON = python3
-PIP = pip3
+PYTHON_VENV ?= python3.14
+VENV_DIR = .venv
+PYTHON = $(VENV_DIR)/bin/python
+PIP = $(VENV_DIR)/bin/pip
 
 # Colores para output
 RED = \033[0;31m
@@ -46,49 +48,50 @@ help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
-setup: ## Configura el entorno de desarrollo
-	$(call print_status,Configurando entorno de desarrollo...)
-	$(PYTHON) -m venv .venv || true
-	$(call print_status,Instalando dependencias...)
-	.venv/bin/pip install --upgrade pip
-	.venv/bin/pip install -e ".[local,all]"
+venv: ## Crea .venv para ambiente host (solo pre-commit; los hooks se instalan aislados por pre-commit)
+	$(call print_status,Creando venv con $(PYTHON_VENV)...)
+	@command -v $(PYTHON_VENV) >/dev/null 2>&1 || { echo "$(RED)❌ $(PYTHON_VENV) no encontrado. Instálalo (ej. brew install python@3.14) o define PYTHON_VENV.$(NC)"; exit 1; }
+	@$(PYTHON_VENV) -m venv $(VENV_DIR)
+	$(call print_status,Instalando deps de host (solo pre-commit)...)
+	@$(PIP) install -q -e ".[dev]"
+	$(call print_success,Venv creado en $(VENV_DIR))
+	@echo ""
+	@echo "  Activar: source $(VENV_DIR)/bin/activate"
+	@echo "  Luego:   pre-commit run --all-files   (o make pre-commit-run)"
+	@echo ""
+
+setup: venv ## Configura el entorno de desarrollo (venv + pre-commit)
 	$(call print_status,Instalando pre-commit hooks...)
-	@.venv/bin/pre-commit install || $(call print_warning,Pre-commit no disponible, instalando...)
-	@if command -v pre-commit > /dev/null 2>&1; then \
-		pre-commit install; \
-	else \
-		.venv/bin/pip install pre-commit; \
-		.venv/bin/pre-commit install; \
-	fi
+	@$(VENV_DIR)/bin/pre-commit install || $(call print_warning,Pre-commit no disponible)
 	$(call print_success,Entorno configurado correctamente)
 	@echo ""
 	@echo "$(YELLOW)⚠️  No olvides copiar env.example a .env y configurar las variables$(NC)"
 
-install: ## Instala las dependencias
+install: ## Instala las dependencias en el venv actual
 	$(call print_status,Instalando dependencias...)
 	$(PIP) install -e ".[local,all]"
 	$(call print_success,Dependencias instaladas)
 
-quality: lint format pre-commit-run ## Ejecuta todas las verificaciones de calidad
+quality: pre-commit-run ## Ejecuta todas las verificaciones de calidad (pre-commit)
 	$(call print_success,Verificaciones de calidad completadas)
 
-lint: ## Ejecuta linters (flake8, mypy, bandit)
+lint: ## Ejecuta linters vía pre-commit
 	$(call print_status,Ejecutando linters...)
-	flake8 app lambda_handler.py --max-line-length=88 --extend-ignore=E203,W503
-	mypy app lambda_handler.py
-	bandit -r app lambda_handler.py
+	@pre-commit run flake8 --all-files
+	@pre-commit run mypy --all-files
+	@pre-commit run bandit --all-files
 	$(call print_success,Linters completados)
 
-format: ## Formatea el código (black, isort)
+format: ## Formatea el código vía pre-commit (black, isort)
 	$(call print_status,Formateando código...)
-	black app lambda_handler.py
-	isort app lambda_handler.py
+	@pre-commit run black --all-files
+	@pre-commit run isort --all-files
 	$(call print_success,Código formateado)
 
 format-check: ## Verifica el formato sin modificar
 	$(call print_status,Verificando formato...)
-	black --check app lambda_handler.py
-	isort --check app lambda_handler.py
+	@$(PYTHON) -m black --check app lambda_handler.py 2>/dev/null || black --check app lambda_handler.py
+	@$(PYTHON) -m isort --check app lambda_handler.py 2>/dev/null || isort --check app lambda_handler.py
 	$(call print_success,Formato verificado)
 
 clean: ## Limpia archivos temporales
@@ -120,7 +123,7 @@ check-env: ## Verifica que las variables de entorno estén configuradas
 # Pre-commit hooks
 pre-commit-install: ## Instala pre-commit hooks
 	$(call print_status,Instalando pre-commit hooks...)
-	@pre-commit install
+	@$(VENV_DIR)/bin/pre-commit install 2>/dev/null || pre-commit install
 	$(call print_success,Pre-commit hooks instalados)
 
 pre-commit-run: ## Ejecuta pre-commit en todos los archivos

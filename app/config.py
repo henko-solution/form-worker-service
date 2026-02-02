@@ -25,7 +25,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
-    )
+    )  # type: ignore[typeddict-unknown-key]
 
     # Application Configuration
     app_name: str = "Henko Form Worker Service"

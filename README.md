@@ -40,11 +40,11 @@ form-worker-service/
 
 ## 🚀 Technologies
 
-- **Python 3.13** - Programming language
-- **requests** - HTTP client for API calls (synchronous, stable in Lambda)
-- **boto3** - AWS SDK for SQS
-- **Pydantic V2** - Data validation for events
-- **AWS Lambda** - Serverless execution environment
+- **Python 3.14** - Programming language
+- **Pydantic V2** - Data validation and models (events, config)
+- **pydantic-settings** - Config from environment variables
+- **requests** - HTTP client for Employee Service and Form Service
+- **AWS Lambda** - Serverless execution (runtime incluye boto3 para Cognito/SQS)
 - **AWS SQS** - Message queue for events
 - **AWS Cognito** - Authentication service for service-to-service auth
 
@@ -60,7 +60,7 @@ form-worker-service/
 - ✅ **Efficient Logging**: Optimized logging with argument formatting (only interpolates when needed)
 - ✅ **Cognito Authentication**: Secure service-to-service authentication
 - ✅ **No Database**: Stateless worker, communicates via APIs only
-- ✅ **VPC Support**: Can be deployed in VPC for private network access
+- ✅ **No VPC**: Lambda runs with default internet access for HTTP calls to Form/Employee services
 
 ## 🏃‍♂️ Quick Start
 
@@ -213,7 +213,7 @@ export TF_TOKEN_app_terraform_io="tu_token_de_terraform_cloud"
 - Handler: `lambda_handler.lambda_handler`
 - Timeout: 15 minutes (for large batches)
 - Memory: 512 MB (adjust based on batch size)
-- VPC: Deployed in private subnet with security group for outbound HTTPS/HTTP
+- No VPC: Lambda uses default internet access for HTTP APIs
 
 **SQS Trigger:**
 - Event Source: SQS Queue
@@ -268,7 +268,8 @@ The model supports both the new event format (with `event_type`, `event_version`
 Calls Employee Service API to get user IDs with automatic pagination:
 
 ```
-GET /employees/?tenant_id=...&positions_in=...&departments_in=...&skip=0&limit=100
+GET /employees/?positions_in=...&departments_in=...&page=1&page_size=100
+Headers: X-Tenant-ID: <tenant_id>, Authorization: Bearer <token>
 → Returns paginated response with all users across all pages
 → Automatically paginates to retrieve all users
 ```
@@ -510,7 +511,7 @@ MIT License
 - Form Service unavailable
 - Invalid dispatch_id
 - Rate limiting
-- Network connectivity issues (if in VPC)
+- Network connectivity issues
 
 **Solutions**:
 - Verify Cognito credentials are correct
@@ -518,8 +519,7 @@ MIT License
 - Check Form Service health
 - Verify dispatch exists in Form Service
 - Check rate limits
-- If in VPC, verify security group allows outbound HTTPS
-- Check VPC endpoints and NAT Gateway configuration
+- Verify Lambda has internet access (no VPC; public endpoints via HTTPS)
 
 #### SQS Messages Not Processing
 **Symptom**: Messages remain in SQS queue.
@@ -781,7 +781,6 @@ Key CloudWatch metrics to track:
 
 ### Network Security
 
-- Use VPC endpoints for AWS services (if in VPC)
 - Use HTTPS for all external API calls
 - Validate SSL certificates
 - Don't expose internal endpoints publicly

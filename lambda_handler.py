@@ -66,9 +66,7 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                 if not message_body:
                     raise ValidationError("Message body is empty", "empty_body")
 
-                logger.debug(
-                    "Message body for %s: %.200s...", message_id, message_body
-                )
+                logger.debug("Message body for %s: %.200s...", message_id, message_body)
                 dispatch_event = processor.parse_sqs_message(message_body)
                 role_count = (
                     len(dispatch_event.role_ids) if dispatch_event.role_ids else 0

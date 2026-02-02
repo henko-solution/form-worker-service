@@ -1,3 +1,6 @@
+# Hooks de calidad: config de cada herramienta en pyproject.toml.
+# Revisiones alineadas con employee-service (py314, black 25.12, pyupgrade 3.21).
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -9,40 +12,49 @@ repos:
       - id: check-merge-conflict
       - id: check-case-conflict
 
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.21.2
+    hooks:
+      - id: pyupgrade
+        args: [--py314-plus]
+
   - repo: https://github.com/psf/black
-    rev: 25.1.0
+    rev: 25.12.0
     hooks:
       - id: black
-        args: [--target-version=py313]
+        # line-length, target-version, exclude: pyproject.toml [tool.black]
 
   - repo: https://github.com/pycqa/isort
-    rev: 6.0.1
+    rev: 7.0.0
     hooks:
       - id: isort
-        args: ["--profile", "black"]
+        # profile, line_length: pyproject.toml [tool.isort]
 
   - repo: https://github.com/pycqa/flake8
     rev: 7.3.0
     hooks:
       - id: flake8
-        args: ["--max-line-length=88"]
-        files: ^(app/|tests/)
+        files: ^(app/|lambda_handler\.py)
+        additional_dependencies: ["flake8-pyproject"]
+        # max-line-length, extend-ignore: pyproject.toml [tool.flake8]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.17.1
+    rev: v1.19.1
     hooks:
       - id: mypy
         files: ^app/.*\.py$
-        exclude: ^(venv/|tests/|\.git/)
+        exclude: ^(venv/|\.venv/|tests/|\.git/)
+        args: [--explicit-package-bases, --ignore-missing-imports]
         additional_dependencies:
           - types-requests
           - pydantic
           - boto3-stubs[essential]
 
   - repo: https://github.com/pycqa/bandit
-    rev: 1.8.6
+    rev: 1.9.2
     hooks:
       - id: bandit
+        args: ["-c", "pyproject.toml"]
         files: ^app/.*\.py$
         exclude: ^app/.*/__init__\.py$
-
+        additional_dependencies: ["bandit[toml]"]

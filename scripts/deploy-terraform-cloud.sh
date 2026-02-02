@@ -9,9 +9,6 @@ set -e
 # Función de limpieza
 cleanup() {
     log_info "🧹 Limpiando archivos temporales..."
-    if [[ -d ".temp-venv" ]]; then
-        rm -rf .temp-venv
-    fi
     if [[ -d "lambda-layer" ]]; then
         rm -rf lambda-layer
     fi
@@ -50,8 +47,15 @@ log_error() {
     echo -e "${RED}❌ $1${NC}"
 }
 
+# Configuración (única fuente de verdad para Lambda)
+PYTHON_VERSION="${LAMBDA_PYTHON_VERSION:-3.14}"
+
 # Verificar argumentos
 ENVIRONMENT=${1:-"qa"}
+AUTO_APPLY=false
+[[ "${2:-}" == "--yes" ]] && AUTO_APPLY=true
+[[ -n "${TF_AUTO_APPLY:-}" ]] && AUTO_APPLY=true
+
 if [[ ! "$ENVIRONMENT" =~ ^(qa|staging|prod)$ ]]; then
     log_error "Environment debe ser: qa, staging, o prod"
     exit 1
@@ -80,9 +84,13 @@ if ! command -v gh &> /dev/null; then
     exit 1
 fi
 
-# Verificar Python
-if ! command -v python3 &> /dev/null; then
-    log_error "Python 3 no está instalado"
+# Verificar Docker (requerido para construir Lambda layer con Python 3.14)
+if ! command -v docker &> /dev/null; then
+    log_error "Docker no está instalado o no está en PATH. Necesario para construir el Lambda layer."
+    exit 1
+fi
+if ! docker info &> /dev/null; then
+    log_error "Docker no está en ejecución. Inicia Docker Desktop y vuelve a intentar."
     exit 1
 fi
 
@@ -103,9 +111,6 @@ export TF_VAR_aws_region=$(gh variable list --repo henko-solution/form-worker-se
 export TF_VAR_form_service_url=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="FORM_SERVICE_URL") | .value' 2>/dev/null || echo "")
 export TF_VAR_employee_service_url=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="EMPLOYEE_SERVICE_URL") | .value' 2>/dev/null || echo "")
 
-# VPC Configuration
-export TF_VAR_vpc_id=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="VPC_ID") | .value' 2>/dev/null || echo "")
-
 # Cognito Configuration
 export TF_VAR_cognito_user_pool_id=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_USER_POOL_ID") | .value' 2>/dev/null || echo "")
 export TF_VAR_cognito_client_id=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="COGNITO_CLIENT_ID") | .value' 2>/dev/null || echo "")
@@ -123,6 +128,12 @@ export TF_VAR_log_level=$(gh variable list --repo henko-solution/form-worker-ser
 export TF_VAR_log_retention_days=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="LOG_RETENTION_DAYS") | .value' 2>/dev/null || echo "30")
 export TF_VAR_sqs_batch_size=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="SQS_BATCH_SIZE") | .value' 2>/dev/null || echo "10")
 export TF_VAR_sqs_maximum_batching_window=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="SQS_MAXIMUM_BATCHING_WINDOW") | .value' 2>/dev/null || echo "5")
+# Lambda warming: siempre true (reduce cold starts)
+export TF_VAR_enable_lambda_warming="true"
+# EventBridge requiere ScheduleExpression no vacío
+TF_VAR_lambda_warming_schedule_rate=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="LAMBDA_WARMING_SCHEDULE_RATE") | .value' 2>/dev/null || echo "cron(0/5 8-18 ? * MON-FRI *)")
+[[ -z "$TF_VAR_lambda_warming_schedule_rate" ]] && TF_VAR_lambda_warming_schedule_rate="cron(0/5 8-18 ? * MON-FRI *)"
+export TF_VAR_lambda_warming_schedule_rate
 
 # Verificar variables requeridas
 if [[ -z "$TF_VAR_form_service_url" ]]; then
@@ -160,7 +171,6 @@ log_info "📋 Variables obtenidas desde GitHub:"
 log_info "  AWS_REGION: $TF_VAR_aws_region"
 log_info "  FORM_SERVICE_URL: $TF_VAR_form_service_url"
 log_info "  EMPLOYEE_SERVICE_URL: $TF_VAR_employee_service_url"
-log_info "  VPC_ID: $TF_VAR_vpc_id"
 log_info "  COGNITO_USER_POOL_ID: $TF_VAR_cognito_user_pool_id"
 log_info "  COGNITO_CLIENT_ID: $TF_VAR_cognito_client_id"
 log_info "  COGNITO_CLIENT_SECRET: [SET]"
@@ -173,7 +183,6 @@ log_info "  LOG_LEVEL: $TF_VAR_log_level"
 log_info "  LOG_RETENTION_DAYS: $TF_VAR_log_retention_days"
 log_info "  SQS_BATCH_SIZE: $TF_VAR_sqs_batch_size"
 log_info "  SQS_MAXIMUM_BATCHING_WINDOW: $TF_VAR_sqs_maximum_batching_window"
-log_info "  VPC_ID: $TF_VAR_vpc_id"
 
 log_success "Variables configuradas para $ENVIRONMENT"
 
@@ -229,57 +238,33 @@ cd ..
 # Crear archivos ZIP para Lambda
 log_info "📦 Creando archivos ZIP para Lambda..."
 
-# Crear ambiente virtual temporal
-log_info "🐍 Creando ambiente virtual temporal..."
+# Directorio raíz del proyecto (permite ejecutar el script desde cualquier sitio)
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$PROJECT_ROOT"
 
-# Try to use Python 3.13 if available (compatibility with pip-tools)
-if command -v python3.13 &> /dev/null; then
-    PYTHON_CMD=python3.13
-    log_info "Using Python 3.13 for pip-compile compatibility"
-elif command -v python3.12 &> /dev/null; then
-    PYTHON_CMD=python3.12
-    log_info "Using Python 3.12 for pip-compile compatibility"
-else
-    PYTHON_CMD=python3
-    log_info "Using default Python 3 (may have compatibility issues with pip-tools)"
+# Crear Lambda Layer con Docker (instalación nativa = compatibilidad con Lambda)
+log_info "🐳 Construyendo Lambda Layer (Python ${PYTHON_VERSION}, imagen Lambda)..."
+mkdir -p lambda-layer
+
+# No actualizar pip: pip 26 rompe pip-tools (allow_all_prereleases). Ver: https://github.com/scikit-learn/scikit-learn/issues/33174
+docker run --rm --platform linux/amd64 --entrypoint "" \
+    -v "${PROJECT_ROOT}:/work" \
+    -w /work \
+    "public.ecr.aws/lambda/python:${PYTHON_VERSION}" \
+    bash -c 'set -e
+pip install -q pip-tools --root-user-action=ignore && pip-compile pyproject.toml -o requirements.txt
+pip install -r requirements.txt -t lambda-layer/python --no-cache-dir --upgrade --root-user-action=ignore'
+
+if [[ $? -ne 0 ]]; then
+    log_error "Falló la construcción del Lambda layer en Docker"
+    exit 1
 fi
 
-$PYTHON_CMD -m venv .temp-venv
-source .temp-venv/bin/activate
+log_success "Lambda layer construido exitosamente"
 
-# Crear Lambda Layer
-log_info "🔨 Creando Lambda Layer..."
-mkdir -p lambda-layer/python
-
-# Instalar dependencias para el layer
-# Use compatible versions to avoid pip-tools compatibility issues with Python 3.13+
-python -m pip install --upgrade "pip<25.0" "setuptools<70" wheel
-python -m pip install pip-tools
-
-# Generar requirements.txt para el layer
-log_info "📋 Generando requirements.txt para Lambda Layer..."
-pip-compile pyproject.toml --output-file requirements.txt
-
-# Actualizar pip a la última versión antes de instalar dependencias
-log_info "🔄 Actualizando pip a la última versión..."
-python -m pip install --upgrade pip
-
-# Instalar dependencias en el layer
-log_info "📥 Instalando dependencias en Lambda Layer..."
-python -m pip install \
-    --platform manylinux2014_x86_64 \
-    --target=lambda-layer/python \
-    --implementation cp \
-    --python-version 3.13 \
-    --only-binary=:all: \
-    --upgrade \
-    -r requirements.txt
-
-# Limpiar archivos innecesarios del layer
+# Limpiar archivos innecesarios del layer (en el host; la imagen Lambda no incluye find)
 log_info "🧹 Limpiando archivos innecesarios del Lambda Layer..."
-# No necesitamos limpiar uvicorn, websockets, etc. porque este worker no los usa
-# Pero podemos limpiar archivos Python compilados
-find lambda-layer/python -name "*.pyc" -delete
+find lambda-layer/python -name "*.pyc" -delete 2>/dev/null || true
 find lambda-layer/python -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
 # Crear ZIP del layer
@@ -291,14 +276,18 @@ cd ..
 log_info "🔨 Creando Lambda Code Package..."
 mkdir -p lambda-code
 
-# Copiar archivos del código con la estructura correcta
-cp -r app/ lambda-code/app/
-cp lambda_handler.py lambda-code/ 2>/dev/null || true
+# Copiar código con exclusiones explícitas (evita .pyc, __pycache__, etc.)
+log_info "📂 Copiando app/ con exclusiones..."
+rsync -a --exclude='__pycache__' --exclude='*.pyc' --exclude='*.pyo' \
+  --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.git' \
+  app/ lambda-code/app/
+cp lambda_handler.py lambda-code/
 
-# Limpiar archivos innecesarios del código
+# Limpieza adicional por si acaso
 log_info "🧹 Limpiando archivos innecesarios del Lambda Code..."
 find lambda-code -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 find lambda-code -name "*.pyc" -delete 2>/dev/null || true
+find lambda-code -name "*.pyo" -delete 2>/dev/null || true
 
 # Crear ZIP del código
 cd lambda-code
@@ -307,11 +296,11 @@ cd ..
 
 # Verificar tamaños
 log_info "📊 Tamaños de los archivos:"
-ls -lh lambda-layer.zip lambda-code.zip 2>/dev/null || true
+ls -lh lambda-layer.zip lambda-code.zip
 
 # Mover ZIPs a la carpeta terraform
 log_info "📁 Moviendo archivos ZIP a la carpeta terraform..."
-mv lambda-layer.zip terraform/ 2>/dev/null || true
+mv lambda-layer.zip terraform/
 mv lambda-code.zip terraform/
 
 log_success "Archivos ZIP creados y movidos exitosamente"
@@ -321,11 +310,6 @@ log_info "🧹 Limpiando archivos temporales..."
 rm -rf lambda-layer
 rm -rf lambda-code
 rm -f requirements.txt
-
-# Desactivar ambiente virtual temporal
-log_info "🐍 Desactivando ambiente virtual temporal..."
-deactivate
-rm -rf .temp-venv
 
 # Plan de Terraform
 log_info "📋 Ejecutando Terraform Plan..."
@@ -351,7 +335,8 @@ PLAN_ARGS=(
     "-var=log_retention_days=$TF_VAR_log_retention_days"
     "-var=sqs_batch_size=$TF_VAR_sqs_batch_size"
     "-var=sqs_maximum_batching_window=$TF_VAR_sqs_maximum_batching_window"
-    "-var=vpc_id=${TF_VAR_vpc_id:-}"
+    "-var=enable_lambda_warming=true"
+    "-var=lambda_warming_schedule_rate=${TF_VAR_lambda_warming_schedule_rate:-cron(0/5 8-18 ? * MON-FRI *)}"
     "-var=lambda_filename=lambda-code.zip"
 )
 
@@ -364,16 +349,17 @@ fi
 
 log_success "Plan de Terraform generado exitosamente"
 
-# Confirmar despliegue
-echo ""
-log_warning "🚨 ¿Estás seguro de que quieres desplegar a $ENVIRONMENT?"
-log_warning "Esto puede tomar varios minutos y puede incurrir en costos de AWS."
-echo ""
-read -p "Escribe 'yes' para continuar: " confirm
-
-if [[ "$confirm" != "yes" ]]; then
-    log_info "Despliegue cancelado"
-    exit 0
+# Confirmar despliegue (omitir con --yes o TF_AUTO_APPLY=1)
+if [[ "$AUTO_APPLY" != "true" ]]; then
+    echo ""
+    log_warning "🚨 ¿Estás seguro de que quieres desplegar a $ENVIRONMENT?"
+    log_warning "Esto puede tomar varios minutos y puede incurrir en costos de AWS."
+    echo ""
+    read -p "Escribe 'yes' para continuar: " confirm
+    if [[ "$confirm" != "yes" ]]; then
+        log_info "Despliegue cancelado"
+        exit 0
+    fi
 fi
 
 # Aplicar cambios
@@ -427,4 +413,3 @@ EOF
 fi
 
 log_success "🎯 Despliegue completado. ¡Tu worker está listo!"
-
