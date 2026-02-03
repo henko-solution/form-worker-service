@@ -25,13 +25,6 @@ resource "aws_lambda_function" "main" {
     mode = "Active"
   }
 
-  # Enviar logs de aplicación a CloudWatch (nivel INFO por defecto; LOG_LEVEL en env puede ser DEBUG)
-  logging_config {
-    log_format              = "Text"
-    application_log_level   = "INFO"
-    system_log_level        = "INFO"
-  }
-
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-lambda-${var.environment}"
   })
