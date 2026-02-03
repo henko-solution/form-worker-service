@@ -67,12 +67,19 @@ class DispatchProcessor:
                     event.dispatch_id,
                 )
             else:
-                # Get user IDs from Employee Service
+                # Employee Service: role_ids→positions_in, area_ids→departments_in
                 role_ids_str = (
                     [str(rid) for rid in event.role_ids] if event.role_ids else None
                 )
                 area_ids_str = (
                     [str(aid) for aid in event.area_ids] if event.area_ids else None
+                )
+                logger.info(
+                    "Employee Service query: tenant_id=%s positions_in=%s "
+                    "departments_in=%s",
+                    event.tenant_id,
+                    role_ids_str,
+                    area_ids_str,
                 )
 
                 user_ids = self.employee_service.get_users_by_role_and_area(

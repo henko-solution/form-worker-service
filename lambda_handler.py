@@ -104,9 +104,9 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                 area_count = (
                     len(dispatch_event.area_ids) if dispatch_event.area_ids else 0
                 )
-                logger.debug(
-                    "Parsed dispatch event: dispatch_id=%s, tenant_id=%s, "
-                    "role_ids=%d, area_ids=%d",
+                logger.info(
+                    "Parsed dispatch: dispatch_id=%s tenant_id=%s "
+                    "role_ids=%d area_ids=%d",
                     dispatch_event.dispatch_id,
                     dispatch_event.tenant_id,
                     role_count,
@@ -123,10 +123,14 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                 )
                 successful += 1
 
+                # Log en CloudWatch (buscar "FORM-WORKER result")
                 logger.info(
-                    "Successfully processed %s: %d assignments created",
-                    message_id,
+                    "FORM-WORKER result dispatch_id=%s users_found=%s "
+                    "assignments_created=%s status=%s",
+                    result.get("dispatch_id"),
+                    result.get("users_found", 0),
                     result.get("assignments_created", 0),
+                    result.get("status", "ok"),
                 )
 
             except ValidationError as e:
