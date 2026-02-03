@@ -165,16 +165,16 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   maximum_batching_window_in_seconds = var.sqs_maximum_batching_window
   enabled                            = true
 
-  # Filter criteria (optional - can filter messages)
-  # filter_criteria {
-  #   filter {
-  #     pattern = jsonencode({
-  #       body = {
-  #         tenant_id = ["henko-main"]
-  #       }
-  #     })
-  #   }
-  # }
+  # Solo invocar Lambda cuando body.event_type == "dispatch.created" (el body se interpreta como JSON)
+  filter_criteria {
+    filter {
+      pattern = jsonencode({
+        body = {
+          event_type = ["dispatch.created"]
+        }
+      })
+    }
+  }
 
   depends_on = [
     module.lambda_worker

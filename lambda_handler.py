@@ -9,16 +9,18 @@ from app.config import get_settings
 from app.exceptions import ValidationError, WorkerError
 from app.workers.dispatch_processor import DispatchProcessor
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """Lambda handler entry point."""
     settings = get_settings()
+    level = getattr(logging, (settings.log_level or "INFO").upper(), logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        force=True,
+    )
 
     logger.info("Lambda handler invoked")
     logger.debug("Environment: %s", settings.app_name)
@@ -40,25 +42,31 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     result = process_sqs_records(records)
 
     logger.info(
-        "Processing complete: %d processed, %d successful, %d failed",
+        "Processing complete: %d processed, %d ok, %d failed, %d returned to queue",
         result["processed"],
         result["successful"],
         result["failed"],
+        len(result.get("batchItemFailures", [])),
     )
 
+    # batchItemFailures = mensajes no borrados (para otros consumidores)
     return result
 
 
 def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Process SQS records."""
+    """Process SQS records; returns results and batchItemFailures when queue shared."""
     processor = DispatchProcessor()
     results = []
     successful = 0
     failed = 0
+    batch_item_failures: list[dict[str, str]] = (
+        []
+    )  # receiptHandle → no borrar; para otros consumidores
 
     try:
         for record in records:
             message_id = record.get("messageId", "unknown")
+            receipt_handle = record.get("receiptHandle", "")
             logger.debug("Processing message: %s", message_id)
 
             try:
@@ -68,6 +76,28 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
 
                 logger.debug("Message body for %s: %.200s...", message_id, message_body)
                 dispatch_event = processor.parse_sqs_message(message_body)
+
+                # Solo dispatch.created o legacy sin event_type; el resto a la cola.
+                if (
+                    dispatch_event.event_type is not None
+                    and dispatch_event.event_type != "dispatch.created"
+                ):
+                    logger.info(
+                        "Skipping message %s: event_type=%r (solo dispatch.created)",
+                        message_id,
+                        dispatch_event.event_type,
+                    )
+                    results.append(
+                        {
+                            "message_id": message_id,
+                            "status": "skipped",
+                            "reason": f"event_type={dispatch_event.event_type!r}",
+                        }
+                    )
+                    if receipt_handle:
+                        batch_item_failures.append({"itemIdentifier": receipt_handle})
+                    continue
+
                 role_count = (
                     len(dispatch_event.role_ids) if dispatch_event.role_ids else 0
                 )
@@ -147,9 +177,12 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     finally:
         processor.close()
 
-    return {
+    out: dict[str, Any] = {
         "processed": len(records),
         "successful": successful,
         "failed": failed,
         "results": results,
     }
+    if batch_item_failures:
+        out["batchItemFailures"] = batch_item_failures
+    return out
