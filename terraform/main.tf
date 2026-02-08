@@ -165,12 +165,12 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   maximum_batching_window_in_seconds = var.sqs_maximum_batching_window
   enabled                            = true
 
-  # Solo invocar Lambda cuando body.event_type == "dispatch.created" (el body se interpreta como JSON)
+  # Invocar Lambda para event_type dispatch.created y dispatch.completed
   filter_criteria {
     filter {
       pattern = jsonencode({
         body = {
-          event_type = ["dispatch.created"]
+          event_type = ["dispatch.created", "dispatch.completed"]
         }
       })
     }

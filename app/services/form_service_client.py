@@ -1,5 +1,9 @@
 """
-Form Service API client for creating assignments.
+Form Service API client.
+
+Provides methods for:
+- Creating assignments (dispatch.created flow)
+- Retrieving employee analytics: dimensions, skills, score (dispatch.completed flow)
 """
 
 import logging
@@ -122,5 +126,179 @@ class FormServiceClient:
             logger.error("Form Service error: %s", e)
             raise FormServiceError(
                 f"Form Service error: {e}",
+                "form_service_error",
+            )
+
+    def get_employee_dimensions(
+        self,
+        tenant_id: str,
+        employee_id: str,
+        position_id: str,
+    ) -> dict[str, Any]:
+        """
+        Get calculated dimension values for an employee in a position.
+        """
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+            }
+
+            url = (
+                f"{self.base_url}/analytics/employees/{employee_id}"
+                f"/positions/{position_id}/dimensions"
+            )
+
+            logger.debug(
+                "Getting employee dimensions: employee=%s position=%s",
+                employee_id,
+                position_id,
+            )
+
+            response = self.session.get(
+                url, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Get employee dimensions API error: status=%s employee=%s "
+                "position=%s",
+                status,
+                employee_id,
+                position_id,
+            )
+            raise FormServiceError(
+                f"Get employee dimensions API returned {status}",
+                "form_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Get employee dimensions request error: %s", e)
+            raise FormServiceError(
+                f"Failed to get employee dimensions: {e}",
+                "form_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Get employee dimensions error: %s", e)
+            raise FormServiceError(
+                f"Get employee dimensions error: {e}",
+                "form_service_error",
+            )
+
+    def get_employee_skills(
+        self,
+        tenant_id: str,
+        employee_id: str,
+        position_id: str,
+    ) -> dict[str, Any]:
+        """
+        Get calculated skill values for an employee in a position.
+        """
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+            }
+
+            url = (
+                f"{self.base_url}/analytics/employees/{employee_id}"
+                f"/positions/{position_id}/skills"
+            )
+
+            logger.debug(
+                "Getting employee skills: employee=%s position=%s",
+                employee_id,
+                position_id,
+            )
+
+            response = self.session.get(
+                url, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Get employee skills API error: status=%s employee=%s "
+                "position=%s",
+                status,
+                employee_id,
+                position_id,
+            )
+            raise FormServiceError(
+                f"Get employee skills API returned {status}",
+                "form_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Get employee skills request error: %s", e)
+            raise FormServiceError(
+                f"Failed to get employee skills: {e}",
+                "form_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Get employee skills error: %s", e)
+            raise FormServiceError(
+                f"Get employee skills error: {e}",
+                "form_service_error",
+            )
+
+    def get_employee_score(
+        self,
+        tenant_id: str,
+        employee_id: str,
+        position_id: str,
+    ) -> dict[str, Any]:
+        """
+        Get weighted score for an employee in a position.
+        """
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+            }
+
+            url = (
+                f"{self.base_url}/analytics/employees/{employee_id}"
+                f"/positions/{position_id}/score"
+            )
+
+            logger.debug(
+                "Getting employee score: employee=%s position=%s",
+                employee_id,
+                position_id,
+            )
+
+            response = self.session.get(
+                url, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Get employee score API error: status=%s employee=%s "
+                "position=%s",
+                status,
+                employee_id,
+                position_id,
+            )
+            raise FormServiceError(
+                f"Get employee score API returned {status}",
+                "form_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Get employee score request error: %s", e)
+            raise FormServiceError(
+                f"Failed to get employee score: {e}",
+                "form_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Get employee score error: %s", e)
+            raise FormServiceError(
+                f"Get employee score error: {e}",
                 "form_service_error",
             )
