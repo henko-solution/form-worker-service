@@ -259,6 +259,106 @@ class SQSEvent(BaseModel):
         }
 
 
+class DispatchCompletedEvent(BaseModel):
+    """
+    Model for dispatch.completed event received from SQS.
+
+    This event is triggered when an employee completes a form dispatch.
+    It carries the data needed to calculate and persist candidate
+    evaluations (dimensions, skills, score) via the Analytics and
+    Employee Service APIs.
+    """
+
+    # Event metadata
+    event_type: str = Field(
+        ...,
+        description="Type of event (must be 'dispatch.completed')",
+    )
+    event_version: str | None = Field(
+        None,
+        description="Version of the event schema",
+    )
+    timestamp: datetime | None = Field(
+        None,
+        description="Timestamp when the event was created",
+    )
+
+    # Dispatch data
+    dispatch_id: UUID = Field(..., description="ID of the completed dispatch")
+    tenant_id: str = Field(..., description="Tenant ID for multi-tenant isolation")
+    form_id: UUID | None = Field(
+        None,
+        description="ID of the form associated with the dispatch",
+    )
+
+    # Candidate evaluation data
+    employee_id: UUID = Field(
+        ...,
+        description="ID of the employee who completed the dispatch",
+    )
+    vacancy_id: UUID = Field(
+        ...,
+        description="ID of the vacancy the candidate belongs to",
+    )
+    candidate_id: UUID = Field(
+        ...,
+        description="ID of the vacancy_candidate record (for PATCH score)",
+    )
+    position_id: UUID = Field(
+        ...,
+        description="ID of the position (for analytics calculations)",
+    )
+
+    # Audit fields
+    created_at: datetime = Field(
+        ...,
+        description="Timestamp when the dispatch was completed",
+    )
+    created_by: str | None = Field(
+        None,
+        description="User ID who triggered the completion",
+    )
+
+    @field_validator("tenant_id")
+    @classmethod
+    def validate_tenant_id(cls, v: str) -> str:
+        """
+        Validate tenant ID is not empty.
+
+        Args:
+            v: Tenant ID value
+
+        Returns:
+            Validated tenant ID
+
+        Raises:
+            ValueError: If tenant_id is empty
+        """
+        if not v or not v.strip():
+            raise ValueError("tenant_id cannot be empty")
+        return v.strip()
+
+    class Config:
+        """Pydantic configuration."""
+
+        json_schema_extra = {
+            "example": {
+                "event_type": "dispatch.completed",
+                "event_version": "1.0",
+                "timestamp": "2026-02-08T12:00:00Z",
+                "dispatch_id": "550e8400-e29b-41d4-a716-446655440000",
+                "tenant_id": "henko-main",
+                "form_id": "660e8400-e29b-41d4-a716-446655440001",
+                "employee_id": "987fcdeb-51a2-43d7-9876-543210987654",
+                "vacancy_id": "123e4567-e89b-12d3-a456-426614174000",
+                "candidate_id": "abc123de-f456-7890-abcd-ef1234567890",
+                "position_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+                "created_at": "2026-02-08T12:00:00Z",
+                "created_by": "987fcdeb-51a2-43d7-9876-543210987654",
+            }
+        }
+
+
 class CreateAssignmentRequest(BaseModel):
     """
     Model for creating assignments via form-service API.

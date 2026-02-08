@@ -6,8 +6,8 @@ Asynchronous worker service for processing form dispatch events via SQS. This se
 
 This service implements an **Event-Driven Worker Architecture** with the following structure:
 
-- **Lambda Handler**: Entry point for SQS-triggered Lambda function
-- **Workers**: Event processing logic
+- **Lambda Handler**: Entry point for SQS-triggered Lambda function (event routing)
+- **Workers**: Event processing logic (one processor per event type)
 - **Services**: External API clients (Employee Service, Form Service)
 - **Models**: Pydantic models for event validation
 
@@ -15,10 +15,11 @@ This service implements an **Event-Driven Worker Architecture** with the followi
 
 ```
 form-worker-service/
-├── lambda_handler.py          # Lambda handler entry point (root level)
+├── lambda_handler.py              # Lambda handler entry point (event routing)
 ├── app/
 │   ├── workers/
-│   │   └── dispatch_processor.py  # Main dispatch processing logic
+│   │   ├── dispatch_processor.py           # dispatch.created processing logic
+│   │   └── dispatch_completed_processor.py # dispatch.completed processing logic
 │   ├── services/
 │   │   ├── employee_service.py    # Employee Service API client (requests)
 │   │   ├── form_service_client.py # Form Service API client (requests)
@@ -32,11 +33,25 @@ form-worker-service/
 
 ### 🔄 Data Flow
 
+**dispatch.created** (assignment creation):
+
 1. **SQS Event** → Lambda Handler
-2. **Lambda Handler** → Parse SQS messages
+2. **Lambda Handler** → Route by `event_type`
 3. **Dispatch Processor** → Get users from Employee Service
 4. **Dispatch Processor** → Create assignments via Form Service API
 5. **Result** → Logged and returned
+
+**dispatch.completed** (candidate evaluation):
+
+1. **SQS Event** → Lambda Handler
+2. **Lambda Handler** → Route by `event_type`
+3. **Dispatch Completed Processor** → Calculate dimensions (Form Service Analytics)
+4. **Dispatch Completed Processor** → Save dimension evaluations (Employee Service)
+5. **Dispatch Completed Processor** → Calculate skills (Form Service Analytics)
+6. **Dispatch Completed Processor** → Save skill evaluations (Employee Service)
+7. **Dispatch Completed Processor** → Calculate weighted score (Form Service Analytics)
+8. **Dispatch Completed Processor** → Update vacancy candidate score (Employee Service)
+9. **Result** → Logged and returned
 
 ## 🚀 Technologies
 
@@ -51,6 +66,8 @@ form-worker-service/
 ## 🎯 Features
 
 - ✅ **Event-Driven**: Processes SQS events asynchronously
+- ✅ **Multi-Event Routing**: Routes `dispatch.created` and `dispatch.completed` to dedicated processors
+- ✅ **Candidate Evaluation Pipeline**: Calculates and persists dimensions, skills, and score on dispatch completion
 - ✅ **Multi-tenant Support**: Tenant-aware processing
 - ✅ **Automatic Pagination**: Retrieves all users from Employee Service regardless of count
 - ✅ **Optimized Batch Processing**: Creates assignments in large batches (up to 1000 users per call)
@@ -219,6 +236,7 @@ export TF_TOKEN_app_terraform_io="tu_token_de_terraform_cloud"
 - Event Source: SQS Queue
 - Batch Size: 10 messages
 - Maximum Batching Window: 5 seconds
+- Filter Pattern: `event_type` in `["dispatch.created", "dispatch.completed"]`
 
 ### Terraform
 
@@ -318,6 +336,89 @@ Returns processing statistics:
         "users_found": 150,
         "assignments_created": 150,
         "batches_processed": 2,
+        "status": "completed"
+      }
+    }
+  ]
+}
+```
+
+## 🔄 dispatch.completed Processing Flow
+
+### 1. SQS Event Received
+
+Lambda receives an SQS event with `event_type: "dispatch.completed"`:
+
+```json
+{
+  "Records": [
+    {
+      "messageId": "...",
+      "body": "{\"event_type\":\"dispatch.completed\",\"dispatch_id\":\"...\",\"employee_id\":\"...\",\"vacancy_id\":\"...\",\"candidate_id\":\"...\",\"position_id\":\"...\",...}"
+    }
+  ]
+}
+```
+
+### 2. Parse Message
+
+The message body is parsed into a `DispatchCompletedEvent`:
+
+```json
+{
+  "event_type": "dispatch.completed",
+  "event_version": "1.0",
+  "timestamp": "2026-02-08T12:00:00Z",
+  "dispatch_id": "550e8400-e29b-41d4-a716-446655440000",
+  "tenant_id": "henko-main",
+  "form_id": "660e8400-e29b-41d4-a716-446655440001",
+  "employee_id": "987fcdeb-51a2-43d7-9876-543210987654",
+  "vacancy_id": "123e4567-e89b-12d3-a456-426614174000",
+  "candidate_id": "abc123de-f456-7890-abcd-ef1234567890",
+  "position_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "created_at": "2026-02-08T12:00:00Z",
+  "created_by": "987fcdeb-51a2-43d7-9876-543210987654"
+}
+```
+
+### 3. Evaluation Pipeline
+
+The processor runs the following steps sequentially:
+
+| Step | Action | Service | Endpoint |
+|------|--------|---------|----------|
+| a | Calculate dimensions | Form Service | `GET /analytics/employees/{id}/positions/{id}/dimensions` |
+| b | Save dimension evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/dimensions/{id}` |
+| c | Calculate skills | Form Service | `GET /analytics/employees/{id}/positions/{id}/skills` |
+| d | Save skill evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/skills/{id}` |
+| e | Calculate weighted score | Form Service | `GET /analytics/employees/{id}/positions/{id}/score` |
+| f | Update candidate score | Employee Service | `PATCH /vacancies/{id}/candidates/{id}` |
+
+**Notes:**
+- Dimensions and skills with `null` values are skipped (insufficient data).
+- The score is converted from a 0-1 float to a 0-100 integer before saving.
+- If the score is `null`, the candidate update is skipped.
+
+### 4. Return Result
+
+```json
+{
+  "processed": 1,
+  "successful": 1,
+  "failed": 0,
+  "results": [
+    {
+      "message_id": "...",
+      "status": "success",
+      "result": {
+        "dispatch_id": "...",
+        "event_type": "dispatch.completed",
+        "employee_id": "...",
+        "vacancy_id": "...",
+        "candidate_id": "...",
+        "dimensions_saved": 5,
+        "skills_saved": 8,
+        "score": 78,
         "status": "completed"
       }
     }
@@ -592,7 +693,20 @@ Check CloudWatch logs for:
 4. No assignments created (expected behavior)
 ```
 
-### Scenario 4: Service Unavailable
+### Scenario 4: Dispatch Completed (Candidate Evaluation)
+
+```
+1. SQS message received with event_type=dispatch.completed
+2. Form Service Analytics calculates 5 dimensions
+3. Employee Service saves 5 dimension evaluations
+4. Form Service Analytics calculates 8 skills
+5. Employee Service saves 8 skill evaluations
+6. Form Service Analytics calculates weighted score (0.78)
+7. Employee Service updates candidate score (78/100)
+8. Processing completes in ~3-5 seconds
+```
+
+### Scenario 5: Service Unavailable
 
 ```
 1. SQS message received
@@ -665,26 +779,29 @@ Check CloudWatch logs for:
 ┌──────────────────────┐
 │ Lambda Handler       │
 │ - Parse SQS records  │
-│ - Extract messages  │
-└──────┬───────────────┘
-       │
-       ↓
-┌──────────────────────┐
-│ Dispatch Processor   │
-│                      │
-│ 1. Parse message     │
-│    → DispatchEvent   │
-└──────┬───────────────┘
-       │
-       ↓
-┌──────────────────────┐
-│ Employee Service     │
-│ GET /employees/      │
-│ → Paginates all users│
-│ → Returns all user_ids│
-└──────┬───────────────┘
-       │
-       ↓
+│ - Route by event_type│
+└──────┬───────┬───────┘
+       │       │
+       │       └──── dispatch.completed ──┐
+       │                                  ↓
+       │ dispatch.created   ┌────────────────────────────┐
+       ↓                    │ DispatchCompletedProcessor  │
+┌──────────────────────┐    │                            │
+│ Dispatch Processor   │    │ a) GET dimensions (Form)   │
+│                      │    │ b) POST dimensions (Emp.)  │
+│ 1. Parse message     │    │ c) GET skills (Form)       │
+│    → DispatchEvent   │    │ d) POST skills (Emp.)      │
+└──────┬───────────────┘    │ e) GET score (Form)        │
+       │                    │ f) PATCH candidate (Emp.)   │
+       ↓                    └─────────────┬──────────────┘
+┌──────────────────────┐                  │
+│ Employee Service     │                  ↓
+│ GET /employees/      │    ┌────────────────────────────┐
+│ → Paginates all users│    │ Return Results             │
+│ → Returns all user_ids│    │ - dimensions_saved         │
+└──────┬───────────────┘    │ - skills_saved             │
+       │                    │ - score                    │
+       ↓                    └────────────────────────────┘
 ┌──────────────────────┐
 │ Batch Processing     │
 │ Optimize batches     │

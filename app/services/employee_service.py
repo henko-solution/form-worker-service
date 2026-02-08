@@ -1,5 +1,9 @@
 """
-Employee Service client for retrieving users by role and area.
+Employee Service client.
+
+Provides methods for:
+- Retrieving users by role and area (dispatch.created flow)
+- Managing vacancy candidate evaluations (dispatch.completed flow)
 """
 
 import logging
@@ -193,5 +197,197 @@ class EmployeeService:
             logger.error("Employee Service error: %s", e)
             raise EmployeeServiceError(
                 f"Employee Service error: {e}",
+                "employee_service_error",
+            )
+
+    def create_candidate_skill_evaluation(
+        self,
+        tenant_id: str,
+        vacancy_id: str,
+        employee_id: str,
+        skill_id: str,
+        skill_value: float,
+    ) -> dict[str, Any]:
+        """
+        Create a skill evaluation for a candidate in a vacancy.
+        """
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+                "Content-Type": "application/json",
+            }
+
+            url = (
+                f"{self.base_url}/vacancies/{vacancy_id}"
+                f"/candidates/{employee_id}/skills/{skill_id}"
+            )
+            payload = {"skill_value": skill_value}
+
+            logger.debug(
+                "Creating skill evaluation: vacancy=%s employee=%s skill=%s value=%s",
+                vacancy_id,
+                employee_id,
+                skill_id,
+                skill_value,
+            )
+
+            response = self.session.post(
+                url, json=payload, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Skill evaluation API error: status=%s vacancy=%s employee=%s skill=%s",
+                status,
+                vacancy_id,
+                employee_id,
+                skill_id,
+            )
+            raise EmployeeServiceError(
+                f"Skill evaluation API returned {status}",
+                "employee_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Skill evaluation request error: %s", e)
+            raise EmployeeServiceError(
+                f"Failed to create skill evaluation: {e}",
+                "employee_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Skill evaluation error: %s", e)
+            raise EmployeeServiceError(
+                f"Skill evaluation error: {e}",
+                "employee_service_error",
+            )
+
+    def create_candidate_dimension_evaluation(
+        self,
+        tenant_id: str,
+        vacancy_id: str,
+        employee_id: str,
+        dimension_id: str,
+        dimension_value: float,
+    ) -> dict[str, Any]:
+        """
+        Create a dimension evaluation for a candidate in a vacancy.
+        """
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+                "Content-Type": "application/json",
+            }
+
+            url = (
+                f"{self.base_url}/vacancies/{vacancy_id}"
+                f"/candidates/{employee_id}/dimensions/{dimension_id}"
+            )
+            payload = {"dimension_value": dimension_value}
+
+            logger.debug(
+                "Creating dimension evaluation: vacancy=%s employee=%s "
+                "dimension=%s value=%s",
+                vacancy_id,
+                employee_id,
+                dimension_id,
+                dimension_value,
+            )
+
+            response = self.session.post(
+                url, json=payload, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Dimension evaluation API error: status=%s vacancy=%s "
+                "employee=%s dimension=%s",
+                status,
+                vacancy_id,
+                employee_id,
+                dimension_id,
+            )
+            raise EmployeeServiceError(
+                f"Dimension evaluation API returned {status}",
+                "employee_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Dimension evaluation request error: %s", e)
+            raise EmployeeServiceError(
+                f"Failed to create dimension evaluation: {e}",
+                "employee_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Dimension evaluation error: %s", e)
+            raise EmployeeServiceError(
+                f"Dimension evaluation error: {e}",
+                "employee_service_error",
+            )
+
+    def update_vacancy_candidate(
+        self,
+        tenant_id: str,
+        vacancy_id: str,
+        candidate_id: str,
+        score: int,
+    ) -> dict[str, Any]:
+        """
+        Update the score of a vacancy candidate.
+        """
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+                "Content-Type": "application/json",
+            }
+
+            url = (
+                f"{self.base_url}/vacancies/{vacancy_id}"
+                f"/candidates/{candidate_id}"
+            )
+            payload = {"score": score}
+
+            logger.debug(
+                "Updating vacancy candidate: vacancy=%s candidate=%s score=%s",
+                vacancy_id,
+                candidate_id,
+                score,
+            )
+
+            response = self.session.patch(
+                url, json=payload, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Update vacancy candidate API error: status=%s vacancy=%s "
+                "candidate=%s",
+                status,
+                vacancy_id,
+                candidate_id,
+            )
+            raise EmployeeServiceError(
+                f"Update vacancy candidate API returned {status}",
+                "employee_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Update vacancy candidate request error: %s", e)
+            raise EmployeeServiceError(
+                f"Failed to update vacancy candidate: {e}",
+                "employee_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Update vacancy candidate error: %s", e)
+            raise EmployeeServiceError(
+                f"Update vacancy candidate error: {e}",
                 "employee_service_error",
             )
