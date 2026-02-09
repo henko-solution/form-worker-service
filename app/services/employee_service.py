@@ -330,6 +330,144 @@ class EmployeeService:
                 "employee_service_error",
             )
 
+    BATCH_MAX_ITEMS = 30
+
+    def create_candidate_dimension_evaluations_batch(
+        self,
+        tenant_id: str,
+        vacancy_id: str,
+        employee_id: str,
+        evaluations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        Create or update multiple dimension evaluations in one request.
+
+        POST /vacancies/{vacancy_id}/candidates/{employee_id}/dimensions/batch
+        Body: array of {dimension_id, dimension_value} (max 30 items).
+        """
+        if len(evaluations) > self.BATCH_MAX_ITEMS:
+            raise EmployeeServiceError(
+                f"Maximum {self.BATCH_MAX_ITEMS} dimension evaluations per batch",
+                "employee_service_validation_error",
+            )
+        if len(evaluations) == 0:
+            return []
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+                "Content-Type": "application/json",
+            }
+            url = (
+                f"{self.base_url}/vacancies/{vacancy_id}"
+                f"/candidates/{employee_id}/dimensions/batch"
+            )
+            payload = [
+                {
+                    "dimension_id": str(e["dimension_id"]),
+                    "dimension_value": float(e["dimension_value"]),
+                }
+                for e in evaluations
+            ]
+            logger.debug(
+                "Batch dimension evaluations: vacancy=%s employee=%s count=%s",
+                vacancy_id,
+                employee_id,
+                len(payload),
+            )
+            response = self.session.post(
+                url, json=payload, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            return list(data) if isinstance(data, list) else []
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Dimension batch API error: status=%s vacancy=%s employee=%s",
+                status,
+                vacancy_id,
+                employee_id,
+            )
+            raise EmployeeServiceError(
+                f"Dimension batch API returned {status}",
+                "employee_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Dimension batch request error: %s", e)
+            raise EmployeeServiceError(
+                f"Failed to create dimension batch: {e}",
+                "employee_service_connection_error",
+            )
+
+    def create_candidate_skill_evaluations_batch(
+        self,
+        tenant_id: str,
+        vacancy_id: str,
+        employee_id: str,
+        evaluations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        Create or update multiple skill evaluations in one request.
+
+        POST /vacancies/{vacancy_id}/candidates/{employee_id}/skills/batch
+        Body: array of {skill_id, skill_value} (max 30 items).
+        """
+        if len(evaluations) > self.BATCH_MAX_ITEMS:
+            raise EmployeeServiceError(
+                f"Maximum {self.BATCH_MAX_ITEMS} skill evaluations per batch",
+                "employee_service_validation_error",
+            )
+        if len(evaluations) == 0:
+            return []
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+                "Content-Type": "application/json",
+            }
+            url = (
+                f"{self.base_url}/vacancies/{vacancy_id}"
+                f"/candidates/{employee_id}/skills/batch"
+            )
+            payload = [
+                {
+                    "skill_id": str(e["skill_id"]),
+                    "skill_value": float(e["skill_value"]),
+                }
+                for e in evaluations
+            ]
+            logger.debug(
+                "Batch skill evaluations: vacancy=%s employee=%s count=%s",
+                vacancy_id,
+                employee_id,
+                len(payload),
+            )
+            response = self.session.post(
+                url, json=payload, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            return list(data) if isinstance(data, list) else []
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Skill batch API error: status=%s vacancy=%s employee=%s",
+                status,
+                vacancy_id,
+                employee_id,
+            )
+            raise EmployeeServiceError(
+                f"Skill batch API returned {status}",
+                "employee_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Skill batch request error: %s", e)
+            raise EmployeeServiceError(
+                f"Failed to create skill batch: {e}",
+                "employee_service_connection_error",
+            )
+
     def update_candidate_score(
         self,
         tenant_id: str,

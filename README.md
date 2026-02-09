@@ -48,9 +48,9 @@ form-worker-service/
 3. **Dispatch Completed Processor** → Get employee vacancies (Employee Service)
 4. **For each vacancy:**
    - Calculate dimensions (Form Service Analytics)
-   - Save dimension evaluations (Employee Service)
+   - Save dimension evaluations in batch (Employee Service)
    - Calculate skills (Form Service Analytics)
-   - Save skill evaluations (Employee Service)
+   - Save skill evaluations in batch (Employee Service)
 5. **Result** → Logged and returned
 
 ## 🚀 Technologies
@@ -67,7 +67,7 @@ form-worker-service/
 
 - ✅ **Event-Driven**: Processes SQS events asynchronously
 - ✅ **Multi-Event Routing**: Routes `dispatch.created` and `dispatch.completed` to dedicated processors
-- ✅ **Candidate Evaluation Pipeline**: Calculates and persists dimensions, skills, and score on dispatch completion
+- ✅ **Candidate Evaluation Pipeline**: Calculates and persists dimensions, skills, and score on dispatch completion (dimensions/skills via batch endpoints, max 30 per request)
 - ✅ **Multi-tenant Support**: Tenant-aware processing
 - ✅ **Automatic Pagination**: Retrieves all users from Employee Service regardless of count
 - ✅ **Optimized Batch Processing**: Creates assignments in large batches (up to 1000 users per call)
@@ -387,15 +387,16 @@ The processor first retrieves all vacancies for the employee, then runs the foll
 | a | Get employee vacancies | Employee Service | `GET /employees/{employee_id}/vacancies` |
 | **For each vacancy:** | | | |
 | b | Calculate dimensions | Form Service | `GET /analytics/employees/{id}/positions/{id}/dimensions` |
-| c | Save dimension evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/dimensions/{id}` |
+| c | Save dimension evaluations (batch) | Employee Service | `POST /vacancies/{id}/candidates/{id}/dimensions/batch` (max 30 items; chunked if more) |
 | d | Calculate skills | Form Service | `GET /analytics/employees/{id}/skills` |
-| e | Save skill evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/skills/{id}` |
+| e | Save skill evaluations (batch) | Employee Service | `POST /vacancies/{id}/candidates/{id}/skills/batch` (max 30 items; chunked if more) |
 | f | Get weighted score | Form Service | `GET /analytics/employees/{id}/positions/{id}/score` |
 | g | Update candidate score | Employee Service | `PATCH /vacancies/{id}/candidates/{id}` |
 
 **Notes:**
 - The vacancy list contains `id` (vacancy_id) and `position_id` for each entry.
 - Vacancies without `position_id` are skipped.
+- Dimensions and skills are sent to Employee Service via **batch** endpoints (`/dimensions/batch`, `/skills/batch`); up to 30 items per request; the worker chunks automatically when there are more.
 - Dimensions and skills with `null` values are skipped (insufficient data).
 - Score from Form Service is 0-1 (float); it is converted to 0-100 (int) for Employee Service. If score is `null`, the update is skipped.
 - All evaluations are processed for all vacancies the employee belongs to.

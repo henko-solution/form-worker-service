@@ -77,9 +77,9 @@ class DispatchCompletedProcessor:
         a) Get employee vacancies  → get_employee_vacancies
         For each vacancy:
           b) Calculate dimensions  → get_employee_dimensions
-          c) Save dimensions       → create_candidate_dimension_evaluation
+          c) Save dimensions       → create_candidate_dimension_evaluations_batch
           d) Calculate skills      → get_employee_skills
-          e) Save skills           → create_candidate_skill_evaluation
+          e) Save skills           → create_candidate_skill_evaluations_batch
           f) Get score             → get_employee_score (Form Service)
           g) Update candidate score → update_candidate_score (Employee Service)
 
@@ -174,29 +174,35 @@ class DispatchCompletedProcessor:
                     vacancy_id_str,
                 )
 
-                # Step c) Save each dimension evaluation in Employee Service
+                # Step c) Save dimension evaluations in Employee Service (batch)
+                dimension_evals = [
+                    {
+                        "dimension_id": d["dimension_id"],
+                        "dimension_value": d["dimension_value"],
+                    }
+                    for d in dimensions
+                    if d.get("dimension_id") is not None
+                    and d.get("dimension_value") is not None
+                ]
                 dimensions_saved = 0
-                for dim in dimensions:
-                    dim_id = dim.get("dimension_id")
-                    dim_value = dim.get("dimension_value")
-
-                    if dim_id is None or dim_value is None:
-                        logger.debug(
-                            "Skipping dimension with missing data: id=%s value=%s",
-                            dim_id,
-                            dim_value,
-                        )
-                        continue
-
-                    self.employee_service.create_candidate_dimension_evaluation(
+                batch_size = self.employee_service.BATCH_MAX_ITEMS
+                emp_svc = self.employee_service
+                for i in range(0, len(dimension_evals), batch_size):
+                    chunk = dimension_evals[i : i + batch_size]
+                    resp = emp_svc.create_candidate_dimension_evaluations_batch(
                         tenant_id=tenant_id,
                         vacancy_id=vacancy_id_str,
                         employee_id=employee_id,
-                        dimension_id=str(dim_id),
-                        dimension_value=float(dim_value),
+                        evaluations=chunk,
                     )
-                    dimensions_saved += 1
-
+                    dimensions_saved += len(resp)
+                if len(dimension_evals) > batch_size:
+                    logger.info(
+                        "Vacancy %s: sent %d dimensions in %d batch request(s)",
+                        vacancy_id_str,
+                        len(dimension_evals),
+                        (len(dimension_evals) + batch_size - 1) // batch_size,
+                    )
                 total_dimensions_saved += dimensions_saved
                 logger.debug(
                     "Saved %d dimension(s) for employee %s, vacancy %s",
@@ -220,29 +226,30 @@ class DispatchCompletedProcessor:
                     vacancy_id_str,
                 )
 
-                # Step e) Save each skill evaluation in Employee Service
+                # Step e) Save skill evaluations in Employee Service (batch)
+                skill_evals = [
+                    {"skill_id": s["skill_id"], "skill_value": s["skill_value"]}
+                    for s in skills
+                    if s.get("skill_id") is not None
+                    and s.get("skill_value") is not None
+                ]
                 skills_saved = 0
-                for skill in skills:
-                    skill_id = skill.get("skill_id")
-                    skill_value = skill.get("skill_value")
-
-                    if skill_id is None or skill_value is None:
-                        logger.debug(
-                            "Skipping skill with missing data: id=%s value=%s",
-                            skill_id,
-                            skill_value,
-                        )
-                        continue
-
-                    self.employee_service.create_candidate_skill_evaluation(
+                for i in range(0, len(skill_evals), batch_size):
+                    chunk = skill_evals[i : i + batch_size]
+                    resp = emp_svc.create_candidate_skill_evaluations_batch(
                         tenant_id=tenant_id,
                         vacancy_id=vacancy_id_str,
                         employee_id=employee_id,
-                        skill_id=str(skill_id),
-                        skill_value=float(skill_value),
+                        evaluations=chunk,
                     )
-                    skills_saved += 1
-
+                    skills_saved += len(resp)
+                if len(skill_evals) > batch_size:
+                    logger.info(
+                        "Vacancy %s: sent %d skills in %d batch request(s)",
+                        vacancy_id_str,
+                        len(skill_evals),
+                        (len(skill_evals) + batch_size - 1) // batch_size,
+                    )
                 total_skills_saved += skills_saved
                 logger.debug(
                     "Saved %d skill(s) for employee %s, vacancy %s",
