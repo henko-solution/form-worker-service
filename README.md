@@ -45,13 +45,13 @@ form-worker-service/
 
 1. **SQS Event** → Lambda Handler
 2. **Lambda Handler** → Route by `event_type`
-3. **Dispatch Completed Processor** → Calculate dimensions (Form Service Analytics)
-4. **Dispatch Completed Processor** → Save dimension evaluations (Employee Service)
-5. **Dispatch Completed Processor** → Calculate skills (Form Service Analytics)
-6. **Dispatch Completed Processor** → Save skill evaluations (Employee Service)
-7. **Dispatch Completed Processor** → Calculate weighted score (Form Service Analytics)
-8. **Dispatch Completed Processor** → Update vacancy candidate score (Employee Service)
-9. **Result** → Logged and returned
+3. **Dispatch Completed Processor** → Get employee vacancies (Employee Service)
+4. **For each vacancy:**
+   - Calculate dimensions (Form Service Analytics)
+   - Save dimension evaluations (Employee Service)
+   - Calculate skills (Form Service Analytics)
+   - Save skill evaluations (Employee Service)
+5. **Result** → Logged and returned
 
 ## 🚀 Technologies
 
@@ -373,9 +373,6 @@ The message body is parsed into a `DispatchCompletedEvent`:
   "tenant_id": "henko-main",
   "form_id": "660e8400-e29b-41d4-a716-446655440001",
   "employee_id": "987fcdeb-51a2-43d7-9876-543210987654",
-  "vacancy_id": "123e4567-e89b-12d3-a456-426614174000",
-  "candidate_id": "abc123de-f456-7890-abcd-ef1234567890",
-  "position_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "created_at": "2026-02-08T12:00:00Z",
   "created_by": "987fcdeb-51a2-43d7-9876-543210987654"
 }
@@ -383,21 +380,22 @@ The message body is parsed into a `DispatchCompletedEvent`:
 
 ### 3. Evaluation Pipeline
 
-The processor runs the following steps sequentially:
+The processor first retrieves all vacancies for the employee, then runs the following steps for each vacancy:
 
 | Step | Action | Service | Endpoint |
 |------|--------|---------|----------|
-| a | Calculate dimensions | Form Service | `GET /analytics/employees/{id}/positions/{id}/dimensions` |
-| b | Save dimension evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/dimensions/{id}` |
-| c | Calculate skills | Form Service | `GET /analytics/employees/{id}/positions/{id}/skills` |
-| d | Save skill evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/skills/{id}` |
-| e | Calculate weighted score | Form Service | `GET /analytics/employees/{id}/positions/{id}/score` |
-| f | Update candidate score | Employee Service | `PATCH /vacancies/{id}/candidates/{id}` |
+| a | Get employee vacancies | Employee Service | `GET /employees/{employee_id}/vacancies` |
+| **For each vacancy:** | | | |
+| b | Calculate dimensions | Form Service | `GET /analytics/employees/{id}/positions/{id}/dimensions` |
+| c | Save dimension evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/dimensions/{id}` |
+| d | Calculate skills | Form Service | `GET /analytics/employees/{id}/skills` |
+| e | Save skill evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/skills/{id}` |
 
 **Notes:**
+- The vacancy list contains `id` (vacancy_id) and `position.id` (position_id) for each entry.
+- Vacancies without position data are skipped.
 - Dimensions and skills with `null` values are skipped (insufficient data).
-- The score is converted from a 0-1 float to a 0-100 integer before saving.
-- If the score is `null`, the candidate update is skipped.
+- All evaluations are processed for all vacancies the employee belongs to.
 
 ### 4. Return Result
 
@@ -414,11 +412,9 @@ The processor runs the following steps sequentially:
         "dispatch_id": "...",
         "event_type": "dispatch.completed",
         "employee_id": "...",
-        "vacancy_id": "...",
-        "candidate_id": "...",
-        "dimensions_saved": 5,
-        "skills_saved": 8,
-        "score": 78,
+        "vacancies_processed": 2,
+        "total_dimensions_saved": 10,
+        "total_skills_saved": 16,
         "status": "completed"
       }
     }
@@ -697,13 +693,19 @@ Check CloudWatch logs for:
 
 ```
 1. SQS message received with event_type=dispatch.completed
-2. Form Service Analytics calculates 5 dimensions
-3. Employee Service saves 5 dimension evaluations
-4. Form Service Analytics calculates 8 skills
-5. Employee Service saves 8 skill evaluations
-6. Form Service Analytics calculates weighted score (0.78)
-7. Employee Service updates candidate score (78/100)
-8. Processing completes in ~3-5 seconds
+2. Employee Service returns 2 vacancies for the employee
+3. For vacancy 1:
+   - Form Service Analytics calculates 5 dimensions
+   - Employee Service saves 5 dimension evaluations
+   - Form Service Analytics calculates 4 skills
+   - Employee Service saves 4 skill evaluations
+4. For vacancy 2:
+   - Form Service Analytics calculates 5 dimensions
+   - Employee Service saves 5 dimension evaluations
+   - Form Service Analytics calculates 4 skills
+   - Employee Service saves 4 skill evaluations
+5. Processing completes in ~5-8 seconds
+   Result: 2 vacancies, 10 dimensions, 8 skills
 ```
 
 ### Scenario 5: Service Unavailable
@@ -787,12 +789,12 @@ Check CloudWatch logs for:
        │ dispatch.created   ┌────────────────────────────┐
        ↓                    │ DispatchCompletedProcessor  │
 ┌──────────────────────┐    │                            │
-│ Dispatch Processor   │    │ a) GET dimensions (Form)   │
-│                      │    │ b) POST dimensions (Emp.)  │
-│ 1. Parse message     │    │ c) GET skills (Form)       │
-│    → DispatchEvent   │    │ d) POST skills (Emp.)      │
-└──────┬───────────────┘    │ e) GET score (Form)        │
-       │                    │ f) PATCH candidate (Emp.)   │
+│ Dispatch Processor   │    │ a) GET vacancies (Emp.)    │
+│                      │    │ For each vacancy:          │
+│ 1. Parse message     │    │   b) GET dimensions (Form) │
+│    → DispatchEvent   │    │   c) POST dimensions (Emp.)│
+└──────┬───────────────┘    │   d) GET skills (Form)     │
+       │                    │   e) POST skills (Emp.)     │
        ↓                    └─────────────┬──────────────┘
 ┌──────────────────────┐                  │
 │ Employee Service     │                  ↓

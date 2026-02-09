@@ -296,18 +296,6 @@ class DispatchCompletedEvent(BaseModel):
         ...,
         description="ID of the employee who completed the dispatch",
     )
-    vacancy_id: UUID = Field(
-        ...,
-        description="ID of the vacancy the candidate belongs to",
-    )
-    candidate_id: UUID = Field(
-        ...,
-        description="ID of the vacancy_candidate record (for PATCH score)",
-    )
-    position_id: UUID = Field(
-        ...,
-        description="ID of the position (for analytics calculations)",
-    )
 
     # Audit fields
     created_at: datetime = Field(
@@ -350,9 +338,6 @@ class DispatchCompletedEvent(BaseModel):
                 "tenant_id": "henko-main",
                 "form_id": "660e8400-e29b-41d4-a716-446655440001",
                 "employee_id": "987fcdeb-51a2-43d7-9876-543210987654",
-                "vacancy_id": "123e4567-e89b-12d3-a456-426614174000",
-                "candidate_id": "abc123de-f456-7890-abcd-ef1234567890",
-                "position_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
                 "created_at": "2026-02-08T12:00:00Z",
                 "created_by": "987fcdeb-51a2-43d7-9876-543210987654",
             }

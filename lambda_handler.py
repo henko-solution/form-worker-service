@@ -282,23 +282,21 @@ def _handle_dispatch_completed(
     completed_event = processor.parse_sqs_message(message_body)
 
     logger.info(
-        "Parsed dispatch.completed: dispatch_id=%s tenant_id=%s "
-        "employee=%s vacancy=%s",
+        "Parsed dispatch.completed: dispatch_id=%s tenant_id=%s employee=%s",
         completed_event.dispatch_id,
         completed_event.tenant_id,
         completed_event.employee_id,
-        completed_event.vacancy_id,
     )
 
     result = processor.process_dispatch_completed_event(completed_event)
 
     logger.info(
         "dispatch.completed result: dispatch_id=%s "
-        "dimensions=%s skills=%s score=%s status=%s",
+        "vacancies=%s dimensions=%s skills=%s status=%s",
         result.get("dispatch_id"),
-        result.get("dimensions_saved", 0),
-        result.get("skills_saved", 0),
-        result.get("score"),
+        result.get("vacancies_processed", 0),
+        result.get("total_dimensions_saved", 0),
+        result.get("total_skills_saved", 0),
         result.get("status", "ok"),
     )
 
