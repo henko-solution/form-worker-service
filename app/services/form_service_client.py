@@ -7,7 +7,7 @@ Provides methods for:
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -155,11 +155,9 @@ class FormServiceClient:
                 position_id,
             )
 
-            response = self.session.get(
-                url, headers=headers, timeout=self.timeout
-            )
+            response = self.session.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "Unknown"
@@ -213,17 +211,14 @@ class FormServiceClient:
                 position_id,
             )
 
-            response = self.session.get(
-                url, headers=headers, timeout=self.timeout
-            )
+            response = self.session.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "Unknown"
             logger.error(
-                "Get employee skills API error: status=%s employee=%s "
-                "position=%s",
+                "Get employee skills API error: status=%s employee=%s " "position=%s",
                 status,
                 employee_id,
                 position_id,
@@ -271,17 +266,14 @@ class FormServiceClient:
                 position_id,
             )
 
-            response = self.session.get(
-                url, headers=headers, timeout=self.timeout
-            )
+            response = self.session.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "Unknown"
             logger.error(
-                "Get employee score API error: status=%s employee=%s "
-                "position=%s",
+                "Get employee score API error: status=%s employee=%s " "position=%s",
                 status,
                 employee_id,
                 position_id,

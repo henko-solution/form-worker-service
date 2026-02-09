@@ -7,7 +7,7 @@ Provides methods for:
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -236,7 +236,7 @@ class EmployeeService:
                 url, json=payload, headers=headers, timeout=self.timeout
             )
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "Unknown"
@@ -301,7 +301,7 @@ class EmployeeService:
                 url, json=payload, headers=headers, timeout=self.timeout
             )
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "Unknown"
@@ -330,6 +330,66 @@ class EmployeeService:
                 "employee_service_error",
             )
 
+    def update_candidate_score(
+        self,
+        tenant_id: str,
+        vacancy_id: str,
+        employee_id: str,
+        score: int,
+    ) -> dict[str, Any]:
+        """
+        Update the evaluation score for a candidate in a vacancy.
+
+        PATCH /vacancies/{vacancy_id}/candidates/{employee_id}
+        """
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+                "Content-Type": "application/json",
+            }
+
+            url = f"{self.base_url}/vacancies/{vacancy_id}" f"/candidates/{employee_id}"
+            payload = {"score": score}
+
+            logger.debug(
+                "Updating candidate score: vacancy=%s employee=%s score=%s",
+                vacancy_id,
+                employee_id,
+                score,
+            )
+
+            response = self.session.patch(
+                url, json=payload, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            return cast(dict[str, Any], response.json())
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Update candidate score API error: status=%s vacancy=%s employee=%s",
+                status,
+                vacancy_id,
+                employee_id,
+            )
+            raise EmployeeServiceError(
+                f"Update candidate score API returned {status}",
+                "employee_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Update candidate score request error: %s", e)
+            raise EmployeeServiceError(
+                f"Failed to update candidate score: {e}",
+                "employee_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Update candidate score error: %s", e)
+            raise EmployeeServiceError(
+                f"Update candidate score error: {e}",
+                "employee_service_error",
+            )
+
     def get_employee_vacancies(
         self,
         tenant_id: str,
@@ -342,14 +402,14 @@ class EmployeeService:
 
         Returns a list where each vacancy has:
         - id: vacancy_id
-        - position.id: position_id
+        - position_id: UUID of the associated position
 
         Args:
             tenant_id: Tenant ID for multi-tenant isolation.
             employee_id: ID of the employee.
 
         Returns:
-            List of vacancy dicts, each with id and position data.
+            List of vacancy dicts, each with id and position_id.
 
         Raises:
             EmployeeServiceError: If the API call fails.
@@ -367,9 +427,7 @@ class EmployeeService:
                 employee_id,
             )
 
-            response = self.session.get(
-                url, headers=headers, timeout=self.timeout
-            )
+            response = self.session.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
             data = response.json()
 

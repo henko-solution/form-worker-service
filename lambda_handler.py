@@ -93,9 +93,7 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                 if not message_body:
                     raise ValidationError("Message body is empty", "empty_body")
 
-                logger.debug(
-                    "Message body for %s: %.200s...", message_id, message_body
-                )
+                logger.debug("Message body for %s: %.200s...", message_id, message_body)
 
                 # Determine event_type from raw JSON before full parsing
                 try:
@@ -130,9 +128,7 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                         }
                     )
                     if receipt_handle:
-                        batch_item_failures.append(
-                            {"itemIdentifier": receipt_handle}
-                        )
+                        batch_item_failures.append({"itemIdentifier": receipt_handle})
                     continue
 
                 results.append(
@@ -169,9 +165,7 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                 failed += 1
 
             except WorkerError as e:
-                logger.error(
-                    "Worker error for %s: %s", message_id, e, exc_info=True
-                )
+                logger.error("Worker error for %s: %s", message_id, e, exc_info=True)
                 error_code = getattr(e, "error_code", "worker_error")
                 results.append(
                     {
@@ -292,11 +286,12 @@ def _handle_dispatch_completed(
 
     logger.info(
         "dispatch.completed result: dispatch_id=%s "
-        "vacancies=%s dimensions=%s skills=%s status=%s",
+        "vacancies=%s dimensions=%s skills=%s scores=%s status=%s",
         result.get("dispatch_id"),
         result.get("vacancies_processed", 0),
         result.get("total_dimensions_saved", 0),
         result.get("total_skills_saved", 0),
+        result.get("total_scores_updated", 0),
         result.get("status", "ok"),
     )
 

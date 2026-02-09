@@ -80,6 +80,8 @@ class DispatchCompletedProcessor:
           c) Save dimensions       → create_candidate_dimension_evaluation
           d) Calculate skills      → get_employee_skills
           e) Save skills           → create_candidate_skill_evaluation
+          f) Get score             → get_employee_score (Form Service)
+          g) Update candidate score → update_candidate_score (Employee Service)
 
         Args:
             event: Validated DispatchCompletedEvent.
@@ -119,6 +121,7 @@ class DispatchCompletedProcessor:
                     "vacancies_processed": 0,
                     "total_dimensions_saved": 0,
                     "total_skills_saved": 0,
+                    "total_scores_updated": 0,
                     "status": "completed_no_vacancies",
                 }
 
@@ -131,25 +134,18 @@ class DispatchCompletedProcessor:
             # Process each vacancy
             total_dimensions_saved = 0
             total_skills_saved = 0
+            total_scores_updated = 0
             vacancies_processed = 0
 
             for vacancy in vacancies:
                 vacancy_id = vacancy.get("id")
-                position_data = vacancy.get("position")
+                position_id = vacancy.get("position_id")
 
-                if not vacancy_id or not position_data:
+                if not vacancy_id or not position_id:
                     logger.warning(
-                        "Skipping vacancy with missing data: id=%s position=%s",
+                        "Skipping vacancy with missing data: id=%s position_id=%s",
                         vacancy_id,
-                        position_data,
-                    )
-                    continue
-
-                position_id = position_data.get("id")
-                if not position_id:
-                    logger.warning(
-                        "Skipping vacancy %s: missing position.id",
-                        vacancy_id,
+                        position_id,
                     )
                     continue
 
@@ -255,6 +251,37 @@ class DispatchCompletedProcessor:
                     vacancy_id_str,
                 )
 
+                # Step f) Get score from Form Service analytics (0-1)
+                score_data = self.form_service_client.get_employee_score(
+                    tenant_id=tenant_id,
+                    employee_id=employee_id,
+                    position_id=position_id_str,
+                )
+                score_value = score_data.get("score")
+
+                # Step g) Update candidate score in Employee Service (0-100)
+                if score_value is not None:
+                    score_int = int(round(float(score_value) * 100))
+                    score_int = max(0, min(100, score_int))
+                    self.employee_service.update_candidate_score(
+                        tenant_id=tenant_id,
+                        vacancy_id=vacancy_id_str,
+                        employee_id=employee_id,
+                        score=score_int,
+                    )
+                    total_scores_updated += 1
+                    logger.info(
+                        "Updated score for vacancy %s employee %s: %s",
+                        vacancy_id_str,
+                        employee_id,
+                        score_int,
+                    )
+                else:
+                    logger.debug(
+                        "Skipping score update for vacancy %s: no score from Form",
+                        vacancy_id_str,
+                    )
+
                 vacancies_processed += 1
                 logger.info(
                     "Completed vacancy %s: dimensions=%d skills=%d",
@@ -265,11 +292,12 @@ class DispatchCompletedProcessor:
 
             logger.info(
                 "Completed dispatch.completed %s: "
-                "vacancies=%d dimensions=%d skills=%d",
+                "vacancies=%d dimensions=%d skills=%d scores=%d",
                 event.dispatch_id,
                 vacancies_processed,
                 total_dimensions_saved,
                 total_skills_saved,
+                total_scores_updated,
             )
 
             return {
@@ -279,6 +307,7 @@ class DispatchCompletedProcessor:
                 "vacancies_processed": vacancies_processed,
                 "total_dimensions_saved": total_dimensions_saved,
                 "total_skills_saved": total_skills_saved,
+                "total_scores_updated": total_scores_updated,
                 "status": "completed",
             }
 

@@ -83,7 +83,7 @@ form-worker-service/
 
 ### Prerequisites
 
-- Python 3.11+ (3.13 recommended)
+- Python 3.11+ (3.14 recommended)
 - AWS Account with SQS and Lambda access
 - Access to Employee Service API
 - Access to Form Service internal API
@@ -226,7 +226,7 @@ export TF_TOKEN_app_terraform_io="tu_token_de_terraform_cloud"
 - **Event Source Mapping**: Conexión SQS → Lambda
 
 **Lambda Configuration:**
-- Runtime: Python 3.13
+- Runtime: Python 3.14
 - Handler: `lambda_handler.lambda_handler`
 - Timeout: 15 minutes (for large batches)
 - Memory: 512 MB (adjust based on batch size)
@@ -390,11 +390,14 @@ The processor first retrieves all vacancies for the employee, then runs the foll
 | c | Save dimension evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/dimensions/{id}` |
 | d | Calculate skills | Form Service | `GET /analytics/employees/{id}/skills` |
 | e | Save skill evaluations | Employee Service | `POST /vacancies/{id}/candidates/{id}/skills/{id}` |
+| f | Get weighted score | Form Service | `GET /analytics/employees/{id}/positions/{id}/score` |
+| g | Update candidate score | Employee Service | `PATCH /vacancies/{id}/candidates/{id}` |
 
 **Notes:**
-- The vacancy list contains `id` (vacancy_id) and `position.id` (position_id) for each entry.
-- Vacancies without position data are skipped.
+- The vacancy list contains `id` (vacancy_id) and `position_id` for each entry.
+- Vacancies without `position_id` are skipped.
 - Dimensions and skills with `null` values are skipped (insufficient data).
+- Score from Form Service is 0-1 (float); it is converted to 0-100 (int) for Employee Service. If score is `null`, the update is skipped.
 - All evaluations are processed for all vacancies the employee belongs to.
 
 ### 4. Return Result
@@ -415,6 +418,7 @@ The processor first retrieves all vacancies for the employee, then runs the foll
         "vacancies_processed": 2,
         "total_dimensions_saved": 10,
         "total_skills_saved": 16,
+        "total_scores_updated": 2,
         "status": "completed"
       }
     }
@@ -699,13 +703,15 @@ Check CloudWatch logs for:
    - Employee Service saves 5 dimension evaluations
    - Form Service Analytics calculates 4 skills
    - Employee Service saves 4 skill evaluations
+   - Form Service Analytics returns score; Employee Service updates candidate score
 4. For vacancy 2:
    - Form Service Analytics calculates 5 dimensions
    - Employee Service saves 5 dimension evaluations
    - Form Service Analytics calculates 4 skills
    - Employee Service saves 4 skill evaluations
+   - Form Service Analytics returns score; Employee Service updates candidate score
 5. Processing completes in ~5-8 seconds
-   Result: 2 vacancies, 10 dimensions, 8 skills
+   Result: 2 vacancies, 10 dimensions, 8 skills, 2 scores updated
 ```
 
 ### Scenario 5: Service Unavailable
