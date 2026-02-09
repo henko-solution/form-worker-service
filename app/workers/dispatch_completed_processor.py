@@ -2,8 +2,6 @@
 Dispatch completed processor worker.
 
 Handles post-processing when a dispatch is completed by an employee.
-The flow calculates candidate evaluations via Form Service analytics
-and persists them in Employee Service:
 """
 
 import json
@@ -72,161 +70,215 @@ class DispatchCompletedProcessor:
     def process_dispatch_completed_event(
         self, event: DispatchCompletedEvent
     ) -> dict[str, Any]:
-        """Process a single dispatch.completed event."""
+        """
+        Process a single dispatch.completed event.
+
+        Executes the full evaluation flow:
+        a) Get employee vacancies  → get_employee_vacancies
+        For each vacancy:
+          b) Calculate dimensions  → get_employee_dimensions
+          c) Save dimensions       → create_candidate_dimension_evaluation
+          d) Calculate skills      → get_employee_skills
+          e) Save skills           → create_candidate_skill_evaluation
+
+        Args:
+            event: Validated DispatchCompletedEvent.
+
+        Returns:
+            Dict with processing results and statistics.
+
+        Raises:
+            WorkerError: If any step fails.
+        """
         tenant_id = event.tenant_id
         employee_id = str(event.employee_id)
-        vacancy_id = str(event.vacancy_id)
-        candidate_id = str(event.candidate_id)
-        position_id = str(event.position_id)
 
         logger.info(
-            "Processing dispatch.completed: dispatch=%s tenant=%s "
-            "employee=%s vacancy=%s",
+            "Processing dispatch.completed: dispatch=%s tenant=%s employee=%s",
             event.dispatch_id,
             tenant_id,
             employee_id,
-            vacancy_id,
         )
 
         try:
-            # Step a) Calculate dimensions from Form Service analytics
-            dimensions_data = self.form_service_client.get_employee_dimensions(
+            # Step a) Get employee vacancies from Employee Service
+            vacancies = self.employee_service.get_employee_vacancies(
                 tenant_id=tenant_id,
                 employee_id=employee_id,
-                position_id=position_id,
             )
-            dimensions = dimensions_data.get("dimensions", [])
+
+            if not vacancies:
+                logger.warning(
+                    "No vacancies found for employee %s",
+                    employee_id,
+                )
+                return {
+                    "dispatch_id": str(event.dispatch_id),
+                    "event_type": "dispatch.completed",
+                    "employee_id": employee_id,
+                    "vacancies_processed": 0,
+                    "total_dimensions_saved": 0,
+                    "total_skills_saved": 0,
+                    "status": "completed_no_vacancies",
+                }
 
             logger.info(
-                "Calculated %d dimension(s) for employee %s",
-                len(dimensions),
+                "Found %d vacanc(y/ies) for employee %s",
+                len(vacancies),
                 employee_id,
             )
 
-            # Step b) Save each dimension evaluation in Employee Service
-            dimensions_saved = 0
-            for dim in dimensions:
-                dim_id = dim.get("dimension_id")
-                dim_value = dim.get("dimension_value")
+            # Process each vacancy
+            total_dimensions_saved = 0
+            total_skills_saved = 0
+            vacancies_processed = 0
 
-                if dim_id is None or dim_value is None:
-                    logger.debug(
-                        "Skipping dimension with missing data: id=%s value=%s",
-                        dim_id,
-                        dim_value,
+            for vacancy in vacancies:
+                vacancy_id = vacancy.get("id")
+                position_data = vacancy.get("position")
+
+                if not vacancy_id or not position_data:
+                    logger.warning(
+                        "Skipping vacancy with missing data: id=%s position=%s",
+                        vacancy_id,
+                        position_data,
                     )
                     continue
 
-                self.employee_service.create_candidate_dimension_evaluation(
-                    tenant_id=tenant_id,
-                    vacancy_id=vacancy_id,
-                    employee_id=employee_id,
-                    dimension_id=str(dim_id),
-                    dimension_value=float(dim_value),
-                )
-                dimensions_saved += 1
-
-            logger.info(
-                "Saved %d dimension evaluation(s) for employee %s",
-                dimensions_saved,
-                employee_id,
-            )
-
-            # Step c) Calculate skills from Form Service analytics
-            skills_data = self.form_service_client.get_employee_skills(
-                tenant_id=tenant_id,
-                employee_id=employee_id,
-                position_id=position_id,
-            )
-            skills = skills_data.get("skills", [])
-
-            logger.info(
-                "Calculated %d skill(s) for employee %s",
-                len(skills),
-                employee_id,
-            )
-
-            # Step d) Save each skill evaluation in Employee Service
-            skills_saved = 0
-            for skill in skills:
-                skill_id = skill.get("skill_id")
-                skill_value = skill.get("skill_value")
-
-                if skill_id is None or skill_value is None:
-                    logger.debug(
-                        "Skipping skill with missing data: id=%s value=%s",
-                        skill_id,
-                        skill_value,
+                position_id = position_data.get("id")
+                if not position_id:
+                    logger.warning(
+                        "Skipping vacancy %s: missing position.id",
+                        vacancy_id,
                     )
                     continue
 
-                self.employee_service.create_candidate_skill_evaluation(
-                    tenant_id=tenant_id,
-                    vacancy_id=vacancy_id,
-                    employee_id=employee_id,
-                    skill_id=str(skill_id),
-                    skill_value=float(skill_value),
-                )
-                skills_saved += 1
-
-            logger.info(
-                "Saved %d skill evaluation(s) for employee %s",
-                skills_saved,
-                employee_id,
-            )
-
-            # Step e) Calculate weighted score from Form Service analytics
-            score_data = self.form_service_client.get_employee_score(
-                tenant_id=tenant_id,
-                employee_id=employee_id,
-                position_id=position_id,
-            )
-            raw_score = score_data.get("score")
-
-            # Step f) Save score in Employee Service (scale 0-1 → 0-100)
-            if raw_score is not None:
-                score_int = round(float(raw_score) * 100)
-                # Clamp to valid range
-                score_int = max(0, min(100, score_int))
-
-                self.employee_service.update_vacancy_candidate(
-                    tenant_id=tenant_id,
-                    vacancy_id=vacancy_id,
-                    candidate_id=candidate_id,
-                    score=score_int,
-                )
+                vacancy_id_str = str(vacancy_id)
+                position_id_str = str(position_id)
 
                 logger.info(
-                    "Updated candidate %s score to %d (raw: %s)",
-                    candidate_id,
-                    score_int,
-                    raw_score,
-                )
-            else:
-                score_int = None
-                logger.warning(
-                    "Score is null for employee %s — skipping candidate update",
+                    "Processing vacancy %s (position %s) for employee %s",
+                    vacancy_id_str,
+                    position_id_str,
                     employee_id,
+                )
+
+                # Step b) Calculate dimensions from Form Service analytics
+                dimensions_data = self.form_service_client.get_employee_dimensions(
+                    tenant_id=tenant_id,
+                    employee_id=employee_id,
+                    position_id=position_id_str,
+                )
+                dimensions = dimensions_data.get("dimensions", [])
+
+                logger.debug(
+                    "Calculated %d dimension(s) for employee %s, vacancy %s",
+                    len(dimensions),
+                    employee_id,
+                    vacancy_id_str,
+                )
+
+                # Step c) Save each dimension evaluation in Employee Service
+                dimensions_saved = 0
+                for dim in dimensions:
+                    dim_id = dim.get("dimension_id")
+                    dim_value = dim.get("dimension_value")
+
+                    if dim_id is None or dim_value is None:
+                        logger.debug(
+                            "Skipping dimension with missing data: id=%s value=%s",
+                            dim_id,
+                            dim_value,
+                        )
+                        continue
+
+                    self.employee_service.create_candidate_dimension_evaluation(
+                        tenant_id=tenant_id,
+                        vacancy_id=vacancy_id_str,
+                        employee_id=employee_id,
+                        dimension_id=str(dim_id),
+                        dimension_value=float(dim_value),
+                    )
+                    dimensions_saved += 1
+
+                total_dimensions_saved += dimensions_saved
+                logger.debug(
+                    "Saved %d dimension(s) for employee %s, vacancy %s",
+                    dimensions_saved,
+                    employee_id,
+                    vacancy_id_str,
+                )
+
+                # Step d) Calculate skills from Form Service analytics
+                skills_data = self.form_service_client.get_employee_skills(
+                    tenant_id=tenant_id,
+                    employee_id=employee_id,
+                    position_id=position_id_str,
+                )
+                skills = skills_data.get("skills", [])
+
+                logger.debug(
+                    "Calculated %d skill(s) for employee %s, vacancy %s",
+                    len(skills),
+                    employee_id,
+                    vacancy_id_str,
+                )
+
+                # Step e) Save each skill evaluation in Employee Service
+                skills_saved = 0
+                for skill in skills:
+                    skill_id = skill.get("skill_id")
+                    skill_value = skill.get("skill_value")
+
+                    if skill_id is None or skill_value is None:
+                        logger.debug(
+                            "Skipping skill with missing data: id=%s value=%s",
+                            skill_id,
+                            skill_value,
+                        )
+                        continue
+
+                    self.employee_service.create_candidate_skill_evaluation(
+                        tenant_id=tenant_id,
+                        vacancy_id=vacancy_id_str,
+                        employee_id=employee_id,
+                        skill_id=str(skill_id),
+                        skill_value=float(skill_value),
+                    )
+                    skills_saved += 1
+
+                total_skills_saved += skills_saved
+                logger.debug(
+                    "Saved %d skill(s) for employee %s, vacancy %s",
+                    skills_saved,
+                    employee_id,
+                    vacancy_id_str,
+                )
+
+                vacancies_processed += 1
+                logger.info(
+                    "Completed vacancy %s: dimensions=%d skills=%d",
+                    vacancy_id_str,
+                    dimensions_saved,
+                    skills_saved,
                 )
 
             logger.info(
                 "Completed dispatch.completed %s: "
-                "dimensions=%d skills=%d score=%s",
+                "vacancies=%d dimensions=%d skills=%d",
                 event.dispatch_id,
-                dimensions_saved,
-                skills_saved,
-                score_int,
+                vacancies_processed,
+                total_dimensions_saved,
+                total_skills_saved,
             )
 
             return {
                 "dispatch_id": str(event.dispatch_id),
                 "event_type": "dispatch.completed",
                 "employee_id": employee_id,
-                "vacancy_id": vacancy_id,
-                "candidate_id": candidate_id,
-                "dimensions_saved": dimensions_saved,
-                "skills_saved": skills_saved,
-                "score": score_int,
+                "vacancies_processed": vacancies_processed,
+                "total_dimensions_saved": total_dimensions_saved,
+                "total_skills_saved": total_skills_saved,
                 "status": "completed",
             }
 

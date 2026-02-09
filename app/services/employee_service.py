@@ -330,64 +330,79 @@ class EmployeeService:
                 "employee_service_error",
             )
 
-    def update_vacancy_candidate(
+    def get_employee_vacancies(
         self,
         tenant_id: str,
-        vacancy_id: str,
-        candidate_id: str,
-        score: int,
-    ) -> dict[str, Any]:
+        employee_id: str,
+    ) -> list[dict[str, Any]]:
         """
-        Update the score of a vacancy candidate.
+        Get the list of vacancies for an employee.
+
+        GET /employees/{employee_id}/vacancies
+
+        Returns a list where each vacancy has:
+        - id: vacancy_id
+        - position.id: position_id
+
+        Args:
+            tenant_id: Tenant ID for multi-tenant isolation.
+            employee_id: ID of the employee.
+
+        Returns:
+            List of vacancy dicts, each with id and position data.
+
+        Raises:
+            EmployeeServiceError: If the API call fails.
         """
         try:
             headers = {
                 "X-Tenant-ID": tenant_id,
                 "Authorization": f"Bearer {self.auth_service.get_access_token()}",
-                "Content-Type": "application/json",
             }
 
-            url = (
-                f"{self.base_url}/vacancies/{vacancy_id}"
-                f"/candidates/{candidate_id}"
-            )
-            payload = {"score": score}
+            url = f"{self.base_url}/employees/{employee_id}/vacancies"
 
             logger.debug(
-                "Updating vacancy candidate: vacancy=%s candidate=%s score=%s",
-                vacancy_id,
-                candidate_id,
-                score,
+                "Getting vacancies for employee: employee=%s",
+                employee_id,
             )
 
-            response = self.session.patch(
-                url, json=payload, headers=headers, timeout=self.timeout
+            response = self.session.get(
+                url, headers=headers, timeout=self.timeout
             )
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+
+            # Response is a list of vacancies
+            if isinstance(data, list):
+                return data
+            else:
+                logger.warning(
+                    "Unexpected response format for employee vacancies: %s",
+                    type(data).__name__,
+                )
+                return []
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "Unknown"
             logger.error(
-                "Update vacancy candidate API error: status=%s vacancy=%s "
-                "candidate=%s",
+                "Get employee vacancies API error: status=%s employee=%s",
                 status,
-                vacancy_id,
-                candidate_id,
+                employee_id,
             )
             raise EmployeeServiceError(
-                f"Update vacancy candidate API returned {status}",
+                f"Get employee vacancies API returned {status}",
                 "employee_service_api_error",
             )
         except requests.RequestException as e:
-            logger.error("Update vacancy candidate request error: %s", e)
+            logger.error("Get employee vacancies request error: %s", e)
             raise EmployeeServiceError(
-                f"Failed to update vacancy candidate: {e}",
+                f"Failed to get employee vacancies: {e}",
                 "employee_service_connection_error",
             )
         except Exception as e:
-            logger.error("Update vacancy candidate error: %s", e)
+            logger.error("Get employee vacancies error: %s", e)
             raise EmployeeServiceError(
-                f"Update vacancy candidate error: {e}",
+                f"Get employee vacancies error: {e}",
                 "employee_service_error",
             )
