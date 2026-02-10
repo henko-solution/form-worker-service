@@ -342,7 +342,7 @@ class EmployeeService:
         """
         Create or update multiple dimension evaluations in one request.
 
-        POST /vacancies/{vacancy_id}/candidates/{employee_id}/dimensions/batch
+        POST /vacancies/{vacancy_id}/candidates/{employee_id}/dimensions
         Body: array of {dimension_id, dimension_value} (max 30 items).
         """
         if len(evaluations) > self.BATCH_MAX_ITEMS:
@@ -360,7 +360,7 @@ class EmployeeService:
             }
             url = (
                 f"{self.base_url}/vacancies/{vacancy_id}"
-                f"/candidates/{employee_id}/dimensions/batch"
+                f"/candidates/{employee_id}/dimensions"
             )
             payload = [
                 {
@@ -410,7 +410,7 @@ class EmployeeService:
         """
         Create or update multiple skill evaluations in one request.
 
-        POST /vacancies/{vacancy_id}/candidates/{employee_id}/skills/batch
+        POST /vacancies/{vacancy_id}/candidates/{employee_id}/skills
         Body: array of {skill_id, skill_value} (max 30 items).
         """
         if len(evaluations) > self.BATCH_MAX_ITEMS:
@@ -428,7 +428,7 @@ class EmployeeService:
             }
             url = (
                 f"{self.base_url}/vacancies/{vacancy_id}"
-                f"/candidates/{employee_id}/skills/batch"
+                f"/candidates/{employee_id}/skills"
             )
             payload = [
                 {
