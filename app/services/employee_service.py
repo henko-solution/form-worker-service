@@ -535,17 +535,17 @@ class EmployeeService:
         employee_id: str,
     ) -> dict[str, Any]:
         """
-        Trigger technical match calculation for a candidate in a vacancy.
+        Get-or-create technical match score for a candidate in a vacancy.
 
-        Calculates technical skills for the position.
+        Calculates technical skills for the position. Response has key "score"
+        (float 0-1). See employee-service TechnicalMatchResponse.
 
-        POST /vacancies/{vacancy_id}/candidates/{employee_id}/technical-match
+        GET /vacancies/{vacancy_id}/candidates/{employee_id}/technical-match
         """
         try:
             headers = {
                 "X-Tenant-ID": tenant_id,
                 "Authorization": f"Bearer {self.auth_service.get_access_token()}",
-                "Content-Type": "application/json",
             }
 
             url = (
@@ -559,9 +559,7 @@ class EmployeeService:
                 employee_id,
             )
 
-            response = self.session.post(
-                url, json={}, headers=headers, timeout=self.timeout
-            )
+            response = self.session.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
             return cast(dict[str, Any], response.json())
 
