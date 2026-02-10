@@ -528,6 +528,68 @@ class EmployeeService:
                 "employee_service_error",
             )
 
+    def trigger_technical_match(
+        self,
+        tenant_id: str,
+        vacancy_id: str,
+        employee_id: str,
+    ) -> dict[str, Any]:
+        """
+        Trigger technical match calculation for a candidate in a vacancy.
+
+        Calculates technical skills for the position.
+
+        POST /vacancies/{vacancy_id}/candidates/{employee_id}/technical-match
+        """
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+                "Content-Type": "application/json",
+            }
+
+            url = (
+                f"{self.base_url}/vacancies/{vacancy_id}"
+                f"/candidates/{employee_id}/technical-match"
+            )
+
+            logger.debug(
+                "Triggering technical match: vacancy=%s employee=%s",
+                vacancy_id,
+                employee_id,
+            )
+
+            response = self.session.post(
+                url, json={}, headers=headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            return cast(dict[str, Any], response.json())
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error(
+                "Technical match API error: status=%s vacancy=%s employee=%s",
+                status,
+                vacancy_id,
+                employee_id,
+            )
+            raise EmployeeServiceError(
+                f"Technical match API returned {status}",
+                "employee_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Technical match request error: %s", e)
+            raise EmployeeServiceError(
+                f"Failed to trigger technical match: {e}",
+                "employee_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Technical match error: %s", e)
+            raise EmployeeServiceError(
+                f"Technical match error: {e}",
+                "employee_service_error",
+            )
+
     def get_employee_vacancies(
         self,
         tenant_id: str,

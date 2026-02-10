@@ -80,8 +80,9 @@ class DispatchCompletedProcessor:
           c) Save dimensions       → create_candidate_dimension_evaluations_batch
           d) Calculate skills      → get_employee_skills
           e) Save skills           → create_candidate_skill_evaluations_batch
-          f) Get score             → get_employee_score (Form Service)
-          g) Update candidate score → update_candidate_score (Employee Service)
+          f) Trigger technical match → trigger_technical_match (Employee Service)
+          g) Get score             → get_employee_score (Form Service)
+          h) Update candidate score → update_candidate_score (Employee Service)
 
         Args:
             event: Validated DispatchCompletedEvent.
@@ -122,6 +123,7 @@ class DispatchCompletedProcessor:
                     "total_dimensions_saved": 0,
                     "total_skills_saved": 0,
                     "total_scores_updated": 0,
+                    "total_technical_match_called": 0,
                     "status": "completed_no_vacancies",
                 }
 
@@ -135,6 +137,7 @@ class DispatchCompletedProcessor:
             total_dimensions_saved = 0
             total_skills_saved = 0
             total_scores_updated = 0
+            total_technical_match_called = 0
             vacancies_processed = 0
 
             for vacancy in vacancies:
@@ -258,7 +261,21 @@ class DispatchCompletedProcessor:
                     vacancy_id_str,
                 )
 
-                # Step f) Get score from Form Service analytics (0-1)
+                # Step f) Trigger technical match
+                # (Employee Service)
+                self.employee_service.trigger_technical_match(
+                    tenant_id=tenant_id,
+                    vacancy_id=vacancy_id_str,
+                    employee_id=employee_id,
+                )
+                total_technical_match_called += 1
+                logger.debug(
+                    "Triggered technical match for vacancy %s employee %s",
+                    vacancy_id_str,
+                    employee_id,
+                )
+
+                # Step g) Get score from Form Service analytics (0-1)
                 score_data = self.form_service_client.get_employee_score(
                     tenant_id=tenant_id,
                     employee_id=employee_id,
@@ -266,7 +283,7 @@ class DispatchCompletedProcessor:
                 )
                 score_value = score_data.get("score")
 
-                # Step g) Update candidate score in Employee Service (0-100)
+                # Step h) Update candidate score in Employee Service (0-100)
                 if score_value is not None:
                     score_int = int(round(float(score_value) * 100))
                     score_int = max(0, min(100, score_int))
@@ -299,12 +316,13 @@ class DispatchCompletedProcessor:
 
             logger.info(
                 "Completed dispatch.completed %s: "
-                "vacancies=%d dimensions=%d skills=%d scores=%d",
+                "vacancies=%d dimensions=%d skills=%d scores=%d technical_match=%d",
                 event.dispatch_id,
                 vacancies_processed,
                 total_dimensions_saved,
                 total_skills_saved,
                 total_scores_updated,
+                total_technical_match_called,
             )
 
             return {
@@ -315,6 +333,7 @@ class DispatchCompletedProcessor:
                 "total_dimensions_saved": total_dimensions_saved,
                 "total_skills_saved": total_skills_saved,
                 "total_scores_updated": total_scores_updated,
+                "total_technical_match_called": total_technical_match_called,
                 "status": "completed",
             }
 
