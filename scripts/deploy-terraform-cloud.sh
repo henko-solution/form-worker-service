@@ -99,8 +99,17 @@ log_success "Dependencias verificadas"
 # Configurar variables de entorno
 log_info "⚙️  Configurando variables de entorno..."
 
-export TF_CLOUD_ORGANIZATION="henko-solution"
-export TF_WORKSPACE="form-worker-service-${ENVIRONMENT}"
+# Contexto Terraform Cloud:
+# - QA/Staging: org henko-solution, workspace form-worker-service-qa|form-worker-service-staging
+# - Prod: org huvantia-solution, workspace form-worker-service-prod
+if [[ "$ENVIRONMENT" == "prod" ]]; then
+    export TF_CLOUD_ORGANIZATION="${TF_CLOUD_ORGANIZATION_PROD:-huvantia-solution}"
+    export TF_WORKSPACE="${TF_WORKSPACE_PROD:-form-worker-service-prod}"
+else
+    export TF_CLOUD_ORGANIZATION="${TF_CLOUD_ORGANIZATION_QA:-henko-solution}"
+    export TF_WORKSPACE="${TF_WORKSPACE_QA:-form-worker-service-${ENVIRONMENT}}"
+fi
+
 export TF_VAR_environment="${ENVIRONMENT}"
 
 # Obtener variables desde GitHub CLI
