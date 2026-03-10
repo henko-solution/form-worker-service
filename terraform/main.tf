@@ -9,9 +9,9 @@ terraform {
   }
 
   cloud {
-    organization = "henko-solution"
+    # Organización se toma de TF_CLOUD_ORGANIZATION (henko-solution / huvantia-solution)
     workspaces {
-      name = "form-worker-service-qa"
+      tags = ["form-worker-service"]
     }
   }
 }
