@@ -53,6 +53,15 @@ form-worker-service/
    - Save skill evaluations in batch (Employee Service)
 5. **Result** → Logged and returned
 
+**user.candidate.assigned** (candidate dispatch creation):
+
+1. **SQS Event** `user.candidate.assigned` → Lambda Handler
+2. **Lambda Handler** → Route by `event_type`
+3. **UserCandidateAssignedProcessor** → GET forms by name from Form Service (`GET /forms/?names_in=...`)
+4. **UserCandidateAssignedProcessor** → For each form, create a new dispatch with `user_ids=[candidate_id]` (`POST /forms/{id}/dispatches`)
+5. **form-service** → Publica evento `dispatch.created` a SQS
+6. **DispatchProcessor** (flujo existente) → Crea assignments para ese dispatch
+
 ## 🚀 Technologies
 
 - **Python 3.14** - Programming language
@@ -446,6 +455,7 @@ The processor first retrieves all vacancies for the employee, then runs the foll
 | `MAX_RETRIES` | Maximum retry attempts | `3` |
 | `RETRY_DELAY_SECONDS` | Delay between retries | `5` |
 | `LOG_LEVEL` | Logging level | `INFO` |
+| `CANDIDATE_FORM_NAMES` | Comma-separated candidate form names for `user.candidate.assigned` flow | `"Huvantia Measure,Integridad,Valores Huvantia,Habilidades Cognitivas,Motivaciones,Liderazgo,Personalidad"` |
 
 ### Batch Processing
 

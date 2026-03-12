@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     # Batch Configuration
     assignment_batch_size: int = 100
 
+    # Candidate forms configuration
+    candidate_form_names: str = (
+        "Huvantia Measure,Integridad,Valores Huvantia,"
+        "Habilidades Cognitivas,Motivaciones,Liderazgo,Personalidad"
+    )
+
     def __repr__(self) -> str:
         """Return string representation of settings (without sensitive data)."""
         sqs_url_repr = (

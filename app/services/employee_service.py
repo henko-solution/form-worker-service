@@ -565,11 +565,25 @@ class EmployeeService:
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "Unknown"
+            body_preview = ""
+            request_url = ""
+            if e.response is not None:
+                request_url = e.response.url or ""
+                try:
+                    body_preview = (e.response.text or "")[:500]
+                except Exception:  # pragma: no cover - defensive, no re-raise
+                    body_preview = "(unable to read body)"
+
             logger.error(
-                "Technical match API error: status=%s vacancy=%s employee=%s",
+                (
+                    "Technical match API error: status=%s vacancy=%s employee=%s "
+                    "url=%s body_preview=%s"
+                ),
                 status,
                 vacancy_id,
                 employee_id,
+                request_url,
+                body_preview,
             )
             raise EmployeeServiceError(
                 f"Technical match API returned {status}",

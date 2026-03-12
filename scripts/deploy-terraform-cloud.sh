@@ -101,12 +101,16 @@ log_info "⚙️  Configurando variables de entorno..."
 
 # Contexto Terraform Cloud:
 # - QA/Staging: org henko-solution, workspace form-worker-service-qa|form-worker-service-staging
+#   (puede sobreescribirse vía TF_WORKSPACE_QA)
 # - Prod: org huvantia-solution, workspace form-worker-service-prod
 if [[ "$ENVIRONMENT" == "prod" ]]; then
     export TF_CLOUD_ORGANIZATION="${TF_CLOUD_ORGANIZATION_PROD:-huvantia-solution}"
     export TF_WORKSPACE="${TF_WORKSPACE_PROD:-form-worker-service-prod}"
 else
     export TF_CLOUD_ORGANIZATION="${TF_CLOUD_ORGANIZATION_QA:-henko-solution}"
+    # Para QA/Staging el workspace por defecto sigue el patrón
+    # form-worker-service-{env} (por ejemplo: form-worker-service-qa),
+    # a menos que se especifique explícitamente TF_WORKSPACE_QA.
     export TF_WORKSPACE="${TF_WORKSPACE_QA:-form-worker-service-${ENVIRONMENT}}"
 fi
 
@@ -137,6 +141,7 @@ export TF_VAR_log_level=$(gh variable list --repo henko-solution/form-worker-ser
 export TF_VAR_log_retention_days=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="LOG_RETENTION_DAYS") | .value' 2>/dev/null || echo "30")
 export TF_VAR_sqs_batch_size=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="SQS_BATCH_SIZE") | .value' 2>/dev/null || echo "10")
 export TF_VAR_sqs_maximum_batching_window=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="SQS_MAXIMUM_BATCHING_WINDOW") | .value' 2>/dev/null || echo "5")
+export TF_VAR_candidate_form_names=$(gh variable list --repo henko-solution/form-worker-service --json name,value --jq '.[] | select(.name=="CANDIDATE_FORM_NAMES") | .value' 2>/dev/null || echo "Huvantia Measure,Integridad,Valores Huvantia,Habilidades Cognitivas,Motivaciones,Liderazgo,Personalidad")
 # Verificar variables requeridas
 if [[ -z "$TF_VAR_form_service_url" ]]; then
     log_error "FORM_SERVICE_URL es requerido. Configúralo en GitHub Variables"
@@ -185,6 +190,7 @@ log_info "  LOG_LEVEL: $TF_VAR_log_level"
 log_info "  LOG_RETENTION_DAYS: $TF_VAR_log_retention_days"
 log_info "  SQS_BATCH_SIZE: $TF_VAR_sqs_batch_size"
 log_info "  SQS_MAXIMUM_BATCHING_WINDOW: $TF_VAR_sqs_maximum_batching_window"
+log_info "  CANDIDATE_FORM_NAMES: $TF_VAR_candidate_form_names"
 
 log_success "Variables configuradas para $ENVIRONMENT"
 

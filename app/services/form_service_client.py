@@ -99,15 +99,16 @@ class FormServiceClient:
             # Convert to dict format for compatibility
             if isinstance(result, list):
                 return {"assignments": result, "total_created": len(result)}
-            elif isinstance(result, dict):
+            if isinstance(result, dict):
                 # If it's already a dict, return as is
                 return result
-            else:
-                # Unexpected format, log warning but return what we got
-                logger.warning(
-                    f"Unexpected response format from Form Service: {type(result)}"
-                )
-                return {"assignments": [], "total_created": 0}
+
+            # Unexpected format, log warning but return what we got
+            logger.warning(
+                "Unexpected response format from Form Service: %s",
+                type(result),
+            )
+            return {"assignments": [], "total_created": 0}
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response else "Unknown"
@@ -126,6 +127,151 @@ class FormServiceClient:
             logger.error("Form Service error: %s", e)
             raise FormServiceError(
                 f"Form Service error: {e}",
+                "form_service_error",
+            )
+
+    def get_forms_by_names(
+        self,
+        tenant_id: str,
+        form_names: list[str],
+    ) -> list[dict[str, Any]]:
+        """
+        Get forms by exact names using the Form Service API.
+
+        Args:
+            tenant_id: Tenant identifier for multi-tenant isolation.
+            form_names: List of form names to search for (exact match).
+
+        Returns:
+            List of form dictionaries as returned by Form Service.
+        """
+        if not form_names:
+            return []
+
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+            }
+
+            # One names_in parameter per form name
+            params = [("names_in", name) for name in form_names]
+            url = f"{self.base_url}/forms/"
+
+            response = self.session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            forms = data.get("forms", [])
+            if not isinstance(forms, list):
+                logger.warning(
+                    "Unexpected forms field type from Form Service: %s",
+                    type(forms),
+                )
+                return []
+
+            return cast(list[dict[str, Any]], forms)
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error("Get forms by names API error: %s", status)
+            raise FormServiceError(
+                f"Get forms by names API returned {status}",
+                "form_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Get forms by names request error: %s", e)
+            raise FormServiceError(
+                f"Failed to get forms by names: {e}",
+                "form_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Get forms by names error: %s", e)
+            raise FormServiceError(
+                f"Get forms by names error: {e}",
+                "form_service_error",
+            )
+
+    def create_dispatch(
+        self,
+        tenant_id: str,
+        form_id: str,
+        user_ids: list[str],
+    ) -> str:
+        """
+        Create a new dispatch for a form and specific users.
+
+        Args:
+            tenant_id: Tenant identifier for multi-tenant isolation.
+            form_id: ID of the form to dispatch.
+            user_ids: List of user IDs that should receive the dispatch.
+
+        Returns:
+            The ID of the created dispatch.
+        """
+        if not user_ids:
+            raise FormServiceError(
+                "user_ids must not be empty",
+                "form_service_validation_error",
+            )
+
+        try:
+            headers = {
+                "X-Tenant-ID": tenant_id,
+                "Authorization": f"Bearer {self.auth_service.get_access_token()}",
+            }
+
+            url = f"{self.base_url}/forms/{form_id}/dispatches"
+            payload = {
+                "roles": None,
+                "areas": None,
+                "user_ids": user_ids,
+                "expires_at": None,
+            }
+
+            response = self.session.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            dispatch_id = data.get("id")
+            if not isinstance(dispatch_id, str):
+                logger.error(
+                    "Invalid dispatch response from Form Service: missing id field",
+                )
+                raise FormServiceError(
+                    "Form Service returned invalid dispatch response (missing id)",
+                    "form_service_api_error",
+                )
+
+            return dispatch_id
+
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response else "Unknown"
+            logger.error("Create dispatch API error: %s", status)
+            raise FormServiceError(
+                f"Create dispatch API returned {status}",
+                "form_service_api_error",
+            )
+        except requests.RequestException as e:
+            logger.error("Create dispatch request error: %s", e)
+            raise FormServiceError(
+                f"Failed to create dispatch: {e}",
+                "form_service_connection_error",
+            )
+        except Exception as e:
+            logger.error("Create dispatch error: %s", e)
+            raise FormServiceError(
+                f"Create dispatch error: {e}",
                 "form_service_error",
             )
 

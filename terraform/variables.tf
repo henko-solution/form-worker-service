@@ -142,6 +142,12 @@ variable "retry_delay_seconds" {
   default     = 5
 }
 
+variable "candidate_form_names" {
+  description = "Comma-separated list of form names for candidate assessments"
+  type        = string
+  default     = "Huvantia Measure,Integridad,Valores Huvantia,Habilidades Cognitivas,Motivaciones,Liderazgo,Personalidad"
+}
+
 variable "log_level" {
   description = "Logging level (DEBUG, INFO, WARNING, ERROR)"
   type        = string

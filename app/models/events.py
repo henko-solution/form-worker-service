@@ -344,6 +344,126 @@ class DispatchCompletedEvent(BaseModel):
         }
 
 
+class UserCandidateAssignedEventData(BaseModel):
+    """
+    Data payload for the user.candidate.assigned event.
+
+    This event is emitted by auth-service when a user is assigned the
+    role "candidate" and should receive candidate assessment forms.
+    """
+
+    user_id: UUID = Field(..., description="ID of the user assigned as candidate")
+    tenant_id: str = Field(
+        ...,
+        description="Tenant ID for multi-tenant isolation",
+    )
+    role_id: UUID = Field(
+        ...,
+        description="ID of the role assigned to the user",
+    )
+    role_name: str = Field(
+        ...,
+        description='Name of the role (must be "candidate")',
+    )
+    email: str | None = Field(
+        default=None,
+        description="Optional email of the user (for traceability only)",
+    )
+
+    @field_validator("tenant_id")
+    @classmethod
+    def validate_tenant_id(cls, v: str) -> str:
+        """
+        Validate tenant ID is not empty.
+
+        Args:
+            v: Tenant ID value
+
+        Returns:
+            Validated tenant ID
+
+        Raises:
+            ValueError: If tenant_id is empty
+        """
+        if not v or not v.strip():
+            raise ValueError("tenant_id cannot be empty")
+        return v.strip()
+
+    @field_validator("role_name")
+    @classmethod
+    def validate_role_name(cls, v: str) -> str:
+        """
+        Validate that role_name corresponds to candidate role.
+
+        Args:
+            v: Role name value
+
+        Returns:
+            Normalized role name
+
+        Raises:
+            ValueError: If role_name is not 'candidate'
+        """
+        value = v.strip()
+        if value.lower() != "candidate":
+            raise ValueError('role_name must be "candidate" for this event')
+        return value
+
+
+class UserCandidateAssignedEventMetadata(BaseModel):
+    """Metadata for user.candidate.assigned events."""
+
+    occurred_at: datetime = Field(
+        ...,
+        description="Timestamp when the event occurred",
+    )
+    source: str = Field(
+        ...,
+        description="Originating service (e.g., 'auth-service')",
+    )
+
+
+class UserCandidateAssignedEvent(BaseModel):
+    """
+    Event emitted when a user is assigned the candidate role.
+
+    This event is used by the form-worker to create dispatches for
+    candidate assessment forms for the given user and tenant.
+    """
+
+    event_type: str = Field(
+        "user.candidate.assigned",
+        description="Type of event (must be 'user.candidate.assigned')",
+    )
+    version: int = Field(
+        1,
+        description="Version of the event schema",
+    )
+    data: UserCandidateAssignedEventData
+    metadata: UserCandidateAssignedEventMetadata
+
+    class Config:
+        """Pydantic configuration."""
+
+        json_schema_extra = {
+            "example": {
+                "event_type": "user.candidate.assigned",
+                "version": 1,
+                "data": {
+                    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "tenant_id": "henko-main",
+                    "role_id": "660e8400-e29b-41d4-a716-446655440001",
+                    "role_name": "candidate",
+                    "email": "candidate@example.com",
+                },
+                "metadata": {
+                    "occurred_at": "2026-03-11T21:20:45.123456Z",
+                    "source": "auth-service",
+                },
+            }
+        }
+
+
 class CreateAssignmentRequest(BaseModel):
     """
     Model for creating assignments via form-service API.

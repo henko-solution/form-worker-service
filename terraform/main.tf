@@ -143,6 +143,7 @@ module "lambda_worker" {
     RETRY_DELAY_SECONDS     = tostring(var.retry_delay_seconds)
     LOG_LEVEL               = var.log_level
     DEBUG                   = var.environment == "dev" || var.environment == "qa" ? "true" : "false"
+    CANDIDATE_FORM_NAMES    = var.candidate_form_names
   }
 
   # CloudWatch configuration
@@ -165,12 +166,16 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   maximum_batching_window_in_seconds = var.sqs_maximum_batching_window
   enabled                            = true
 
-  # Invocar Lambda para event_type dispatch.created y dispatch.completed
+  # Invocar Lambda para event_type dispatch.created, dispatch.completed y user.candidate.assigned
   filter_criteria {
     filter {
       pattern = jsonencode({
         body = {
-          event_type = ["dispatch.created", "dispatch.completed"]
+          event_type = [
+            "dispatch.created",
+            "dispatch.completed",
+            "user.candidate.assigned",
+          ]
         }
       })
     }

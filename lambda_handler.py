@@ -2,8 +2,9 @@
 Lambda handler for processing SQS events.
 
 Routes incoming messages to the appropriate processor based on event_type:
-- dispatch.created   → DispatchProcessor
-- dispatch.completed → DispatchCompletedProcessor
+- dispatch.created          → DispatchProcessor
+- dispatch.completed        → DispatchCompletedProcessor
+- user.candidate.assigned   → UserCandidateAssignedProcessor
 """
 
 import json
@@ -14,11 +15,18 @@ from app.config import get_settings
 from app.exceptions import ValidationError, WorkerError
 from app.workers.dispatch_completed_processor import DispatchCompletedProcessor
 from app.workers.dispatch_processor import DispatchProcessor
+from app.workers.user_candidate_assigned_processor import (
+    UserCandidateAssignedProcessor,
+)
 
 logger = logging.getLogger(__name__)
 
 # Supported event types for routing
-SUPPORTED_EVENT_TYPES = {"dispatch.created", "dispatch.completed"}
+SUPPORTED_EVENT_TYPES = {
+    "dispatch.created",
+    "dispatch.completed",
+    "user.candidate.assigned",
+}
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -67,13 +75,15 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     Process SQS records; routes to the appropriate processor based on event_type.
 
     Supported event types:
-    - dispatch.created:   Creates assignments for users.
-    - dispatch.completed: Calculates and persists candidate evaluations.
+    - dispatch.created:         Creates assignments for users.
+    - dispatch.completed:       Calculates and persists candidate evaluations.
+    - user.candidate.assigned:  Creates dispatches for candidate assessment forms.
 
     Returns results and batchItemFailures when the queue is shared.
     """
     dispatch_processor = DispatchProcessor()
     completed_processor = DispatchCompletedProcessor()
+    user_candidate_processor = UserCandidateAssignedProcessor()
 
     results: list[dict[str, Any]] = []
     successful = 0
@@ -103,6 +113,14 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
 
                 event_type = raw_data.get("event_type")
 
+                if event_type == "user.candidate.assigned":
+                    # Log full payload to help debug event structure (non-sensitive)
+                    logger.info(
+                        "Received user.candidate.assigned message_id=%s payload=%s",
+                        message_id,
+                        raw_data,
+                    )
+
                 # Route to the appropriate processor
                 if event_type == "dispatch.completed":
                     result = _handle_dispatch_completed(
@@ -112,6 +130,12 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                     # event_type is None → legacy format, assume dispatch.created
                     result = _handle_dispatch_created(
                         message_body, message_id, dispatch_processor
+                    )
+                elif event_type == "user.candidate.assigned":
+                    result = _handle_user_candidate_assigned(
+                        message_body,
+                        message_id,
+                        user_candidate_processor,
                     )
                 else:
                     # Unsupported event_type → skip and return to queue
@@ -198,6 +222,7 @@ def process_sqs_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     finally:
         dispatch_processor.close()
         completed_processor.close()
+        user_candidate_processor.close()
 
     out: dict[str, Any] = {
         "processed": len(records),
@@ -292,6 +317,48 @@ def _handle_dispatch_completed(
         result.get("total_dimensions_saved", 0),
         result.get("total_skills_saved", 0),
         result.get("total_scores_updated", 0),
+        result.get("status", "ok"),
+    )
+
+    return result
+
+
+def _handle_user_candidate_assigned(
+    message_body: str,
+    message_id: str,
+    processor: UserCandidateAssignedProcessor,
+) -> dict[str, Any]:
+    """
+    Parse and process a user.candidate.assigned event.
+
+    Args:
+        message_body: Raw JSON string from SQS.
+        message_id: SQS message ID for logging.
+        processor: UserCandidateAssignedProcessor instance.
+
+    Returns:
+        Processing result dict.
+    """
+    event = processor.parse_sqs_message(message_body)
+
+    logger.info(
+        "Parsed user.candidate.assigned: user_id=%s tenant_id=%s role_id=%s "
+        "role_name=%s",
+        event.data.user_id,
+        event.data.tenant_id,
+        event.data.role_id,
+        event.data.role_name,
+    )
+
+    result = processor.process_user_candidate_assigned_event(event)
+
+    logger.info(
+        "user.candidate.assigned result: user_id=%s tenant_id=%s "
+        "forms_found=%s dispatches_created=%s status=%s",
+        result.get("user_id"),
+        result.get("tenant_id"),
+        result.get("forms_found", 0),
+        result.get("dispatches_created", 0),
         result.get("status", "ok"),
     )
 
